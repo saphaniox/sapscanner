@@ -31,7 +31,7 @@ void main() {
       }),
       findsOneWidget,
     );
-    expect(find.text('Native document studio'), findsOneWidget);
+    expect(find.text('Scan smarter. Work faster.'), findsOneWidget);
     expect(find.text('Scan workspace'), findsOneWidget);
     expect(find.text('Import files'), findsOneWidget);
   });

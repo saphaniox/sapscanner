@@ -66,7 +66,7 @@ const _dictionaries = {
     'language': 'Language',
     'localOnly': 'Local only',
     'saved': 'Saved',
-    'nativeStudio': 'Native document studio',
+    'nativeStudio': 'Scan smarter. Work faster.',
     'releaseReadiness': 'Release readiness',
     'releaseSubtitle':
         'Local-first scanner with international language support.',
