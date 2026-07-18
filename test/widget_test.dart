@@ -8,6 +8,10 @@ import 'package:sapscanner/src/services/scanner_services.dart';
 import 'package:sapscanner/src/views/sap_scanner_home.dart';
 
 void main() {
+  tearDown(() {
+    TestWidgetsFlutterBinding.instance.platformDispatcher.clearAllTestValues();
+  });
+
   testWidgets('renders SapScanner native shell', (tester) async {
     final controller = ScannerController(
       scannerService: NativeScannerService(),
@@ -78,6 +82,40 @@ void main() {
       isTrue,
     );
     expect(find.text('الإعدادات'), findsOneWidget);
+  });
+
+  testWidgets('uses navigation rail on wider devices', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1100, 800);
+
+    final controller = ScannerController(
+      scannerService: NativeScannerService(),
+      exportService: DocumentExportService(),
+      compressionService: NativeCompressionService(),
+    );
+
+    await tester.pumpWidget(SapScannerApp(controller: controller));
+
+    expect(find.byType(NavigationRail), findsOneWidget);
+    expect(find.byType(NavigationBar), findsNothing);
+    expect(find.text('Scan workspace'), findsOneWidget);
+  });
+
+  testWidgets('keeps phone layout usable on narrow screens', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 700);
+
+    final controller = ScannerController(
+      scannerService: NativeScannerService(),
+      exportService: DocumentExportService(),
+      compressionService: NativeCompressionService(),
+    );
+
+    await tester.pumpWidget(SapScannerApp(controller: controller));
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.byType(NavigationRail), findsNothing);
   });
 
   test('conversion workspace exposes the office conversion matrix', () {

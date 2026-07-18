@@ -22,6 +22,21 @@ enum ExportFormat { pdf, jpg, text, word, excel, powerPoint, zip, json }
 
 enum AppLanguage { en, lg, xog, sw, fr, es, ar, pt, de, hi, zh, ja }
 
+const appLanguageMenuOrder = [
+  AppLanguage.en,
+  AppLanguage.sw,
+  AppLanguage.fr,
+  AppLanguage.es,
+  AppLanguage.ar,
+  AppLanguage.pt,
+  AppLanguage.de,
+  AppLanguage.hi,
+  AppLanguage.zh,
+  AppLanguage.ja,
+  AppLanguage.lg,
+  AppLanguage.xog,
+];
+
 enum CompressionKind { photo, video, file, folder, mixed }
 
 class CropRect {

@@ -251,6 +251,11 @@ void main() {
     }
 
     expect(AppLanguage.values.length, 12);
+    expect(appLanguageMenuOrder.length, AppLanguage.values.length);
+    expect(appLanguageMenuOrder.sublist(appLanguageMenuOrder.length - 2), [
+      AppLanguage.lg,
+      AppLanguage.xog,
+    ]);
     expect(i18n.t(AppLanguage.en, 'library'), 'Library');
     expect(i18n.t(AppLanguage.lg, 'library'), 'Layibulale');
     expect(i18n.t(AppLanguage.xog, 'language'), 'Olulimi');

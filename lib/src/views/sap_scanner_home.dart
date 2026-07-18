@@ -48,86 +48,180 @@ class _SapScannerHomeState extends State<SapScannerHome> {
       CompressWorkspace(controller: controller),
       SettingsWorkspace(controller: controller),
     ];
+    final navigationItems = [
+      _NavigationItem(
+        icon: Icons.document_scanner_outlined,
+        label: controller.t('scan'),
+      ),
+      _NavigationItem(
+        icon: Icons.folder_copy_outlined,
+        label: controller.t('library'),
+      ),
+      _NavigationItem(icon: Icons.swap_horiz, label: controller.t('convert')),
+      _NavigationItem(icon: Icons.compress, label: controller.t('compress')),
+      _NavigationItem(
+        icon: Icons.settings_outlined,
+        label: controller.t('settings'),
+      ),
+    ];
 
     return Directionality(
       textDirection: controller.language == AppLanguage.ar
           ? TextDirection.rtl
           : TextDirection.ltr,
-      child: Scaffold(
-        appBar: AppBar(
-          titleSpacing: 16,
-          title: Row(
-            children: [
-              const SapMark(),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final useRail = constraints.maxWidth >= 840;
+          final content = SafeArea(
+            child: Column(
+              children: [
+                if (controller.notice.isNotEmpty)
+                  NoticeBanner(message: controller.notice),
+                Expanded(child: pages[pageIndex]),
+              ],
+            ),
+          );
+
+          return Scaffold(
+            appBar: AppBar(
+              titleSpacing: 16,
+              title: Row(
                 children: [
-                  Text(
-                    'SapScanner',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w900,
+                  const SapMark(),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'SapScanner',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                        Text(
+                          controller.t('nativeStudio'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: Colors.black54),
+                        ),
+                      ],
                     ),
-                  ),
-                  Text(
-                    controller.t('nativeStudio'),
-                    style: Theme.of(
-                      context,
-                    ).textTheme.bodySmall?.copyWith(color: Colors.black54),
                   ),
                 ],
               ),
-            ],
-          ),
-          actions: [
-            if (controller.isBusy)
-              const Padding(
-                padding: EdgeInsets.only(right: 16),
-                child: Center(
-                  child: SizedBox.square(
-                    dimension: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+              actions: [
+                if (controller.isBusy)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 16),
+                    child: Center(
+                      child: SizedBox.square(
+                        dimension: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
                   ),
+              ],
+            ),
+            body: useRail
+                ? Row(
+                    children: [
+                      NavigationRail(
+                        selectedIndex: pageIndex,
+                        labelType: NavigationRailLabelType.all,
+                        minWidth: 82,
+                        destinations: [
+                          for (final item in navigationItems)
+                            NavigationRailDestination(
+                              icon: Icon(item.icon),
+                              label: Text(
+                                item.label,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                        onDestinationSelected: (index) {
+                          setState(() => pageIndex = index);
+                        },
+                      ),
+                      const VerticalDivider(width: 1),
+                      Expanded(child: content),
+                    ],
+                  )
+                : content,
+            bottomNavigationBar: useRail
+                ? null
+                : NavigationBar(
+                    selectedIndex: pageIndex,
+                    onDestinationSelected: (index) {
+                      setState(() => pageIndex = index);
+                    },
+                    destinations: [
+                      for (final item in navigationItems)
+                        NavigationDestination(
+                          icon: Icon(item.icon),
+                          label: item.label,
+                        ),
+                    ],
+                  ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _NavigationItem {
+  const _NavigationItem({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+}
+
+class ResponsiveListView extends StatelessWidget {
+  const ResponsiveListView({
+    super.key,
+    required this.children,
+    this.maxWidth = 1040,
+  });
+
+  final List<Widget> children;
+  final double maxWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final horizontalPadding = constraints.maxWidth < 380
+            ? 12.0
+            : constraints.maxWidth < 720
+            ? 16.0
+            : 24.0;
+        final bottomPadding = 24.0 + MediaQuery.paddingOf(context).bottom;
+
+        return ListView(
+          padding: EdgeInsets.fromLTRB(
+            horizontalPadding,
+            16,
+            horizontalPadding,
+            bottomPadding,
+          ),
+          children: [
+            Center(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(maxWidth: maxWidth),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: children,
                 ),
               ),
-          ],
-        ),
-        body: SafeArea(
-          child: Column(
-            children: [
-              if (controller.notice.isNotEmpty)
-                NoticeBanner(message: controller.notice),
-              Expanded(child: pages[pageIndex]),
-            ],
-          ),
-        ),
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: pageIndex,
-          onDestinationSelected: (index) => setState(() => pageIndex = index),
-          destinations: [
-            NavigationDestination(
-              icon: const Icon(Icons.document_scanner_outlined),
-              label: controller.t('scan'),
-            ),
-            NavigationDestination(
-              icon: const Icon(Icons.folder_copy_outlined),
-              label: controller.t('library'),
-            ),
-            NavigationDestination(
-              icon: const Icon(Icons.swap_horiz),
-              label: controller.t('convert'),
-            ),
-            NavigationDestination(
-              icon: const Icon(Icons.compress),
-              label: controller.t('compress'),
-            ),
-            NavigationDestination(
-              icon: const Icon(Icons.settings_outlined),
-              label: controller.t('settings'),
             ),
           ],
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -141,8 +235,7 @@ class ScanWorkspace extends StatelessWidget {
   Widget build(BuildContext context) {
     final activePage = controller.activePage;
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return ResponsiveListView(
       children: [
         Card(
           child: Padding(
@@ -714,32 +807,35 @@ class PageTools extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 10),
-            SegmentedButton<ScanFilter>(
-              segments: const [
-                ButtonSegment(
-                  value: ScanFilter.auto,
-                  label: Text('Auto'),
-                  icon: Icon(Icons.auto_fix_high),
-                ),
-                ButtonSegment(
-                  value: ScanFilter.color,
-                  label: Text('Color'),
-                  icon: Icon(Icons.palette_outlined),
-                ),
-                ButtonSegment(
-                  value: ScanFilter.grayscale,
-                  label: Text('Gray'),
-                  icon: Icon(Icons.tonality),
-                ),
-                ButtonSegment(
-                  value: ScanFilter.blackAndWhite,
-                  label: Text('B/W'),
-                  icon: Icon(Icons.contrast),
-                ),
-              ],
-              selected: {page.filter},
-              onSelectionChanged: (value) =>
-                  controller.applyFilterToActivePage(value.first),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SegmentedButton<ScanFilter>(
+                segments: const [
+                  ButtonSegment(
+                    value: ScanFilter.auto,
+                    label: Text('Auto'),
+                    icon: Icon(Icons.auto_fix_high),
+                  ),
+                  ButtonSegment(
+                    value: ScanFilter.color,
+                    label: Text('Color'),
+                    icon: Icon(Icons.palette_outlined),
+                  ),
+                  ButtonSegment(
+                    value: ScanFilter.grayscale,
+                    label: Text('Gray'),
+                    icon: Icon(Icons.tonality),
+                  ),
+                  ButtonSegment(
+                    value: ScanFilter.blackAndWhite,
+                    label: Text('B/W'),
+                    icon: Icon(Icons.contrast),
+                  ),
+                ],
+                selected: {page.filter},
+                onSelectionChanged: (value) =>
+                    controller.applyFilterToActivePage(value.first),
+              ),
             ),
           ],
         ),
@@ -757,48 +853,9 @@ class LibraryWorkspace extends StatelessWidget {
   Widget build(BuildContext context) {
     final pages = controller.filteredPages;
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return ResponsiveListView(
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                decoration: InputDecoration(
-                  labelText: controller.t('search'),
-                  prefixIcon: const Icon(Icons.search),
-                  border: const OutlineInputBorder(),
-                ),
-                onChanged: controller.setSearchQuery,
-              ),
-            ),
-            const SizedBox(width: 10),
-            SizedBox(
-              width: 140,
-              child: DropdownButtonFormField<String>(
-                initialValue: controller.activeFolder,
-                decoration: InputDecoration(
-                  labelText: controller.t('folder'),
-                  border: const OutlineInputBorder(),
-                ),
-                items: [
-                  for (final folder in controller.folders)
-                    DropdownMenuItem(
-                      value: folder,
-                      child: Text(
-                        folder == 'All' ? controller.t('all') : folder,
-                      ),
-                    ),
-                ],
-                onChanged: (value) {
-                  if (value != null) {
-                    controller.setActiveFolder(value);
-                  }
-                },
-              ),
-            ),
-          ],
-        ),
+        _LibraryFilterBar(controller: controller),
         const SizedBox(height: 14),
         if (pages.isEmpty)
           const EmptyState(
@@ -836,6 +893,65 @@ class LibraryWorkspace extends StatelessWidget {
             const SizedBox(height: 8),
           ],
       ],
+    );
+  }
+}
+
+class _LibraryFilterBar extends StatelessWidget {
+  const _LibraryFilterBar({required this.controller});
+
+  final ScannerController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final searchField = TextField(
+      decoration: InputDecoration(
+        labelText: controller.t('search'),
+        prefixIcon: const Icon(Icons.search),
+        border: const OutlineInputBorder(),
+      ),
+      onChanged: controller.setSearchQuery,
+    );
+    final folderField = DropdownButtonFormField<String>(
+      initialValue: controller.activeFolder,
+      isExpanded: true,
+      decoration: InputDecoration(
+        labelText: controller.t('folder'),
+        border: const OutlineInputBorder(),
+      ),
+      items: [
+        for (final folder in controller.folders)
+          DropdownMenuItem(
+            value: folder,
+            child: Text(
+              folder == 'All' ? controller.t('all') : folder,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+      ],
+      onChanged: (value) {
+        if (value != null) {
+          controller.setActiveFolder(value);
+        }
+      },
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth < 520) {
+          return Column(
+            children: [searchField, const SizedBox(height: 10), folderField],
+          );
+        }
+
+        return Row(
+          children: [
+            Expanded(child: searchField),
+            const SizedBox(width: 10),
+            SizedBox(width: 180, child: folderField),
+          ],
+        );
+      },
     );
   }
 }
@@ -964,8 +1080,7 @@ class ConvertWorkspace extends StatelessWidget {
   Widget build(BuildContext context) {
     final activePage = controller.activePage;
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return ResponsiveListView(
       children: [
         const SectionTitle(
           icon: Icons.swap_horiz,
@@ -1172,8 +1287,8 @@ class DocumentViewerScreen extends StatelessWidget {
       appBar: AppBar(
         title: Text(page.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+      body: ResponsiveListView(
+        maxWidth: 920,
         children: [
           Card(
             child: Padding(
@@ -1280,8 +1395,7 @@ class CompressWorkspace extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return ResponsiveListView(
       children: [
         const SectionTitle(
           icon: Icons.compress,
@@ -1339,8 +1453,7 @@ class SettingsWorkspace extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    return ResponsiveListView(
       children: [
         SectionTitle(
           icon: Icons.verified_user_outlined,
@@ -1358,7 +1471,7 @@ class SettingsWorkspace extends StatelessWidget {
                 border: const OutlineInputBorder(),
               ),
               items: [
-                for (final language in AppLanguage.values)
+                for (final language in appLanguageMenuOrder)
                   DropdownMenuItem(
                     value: language,
                     child: Text(languageLabel(language)),
@@ -1588,12 +1701,15 @@ class FeatureGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textScale = MediaQuery.textScalerOf(context).scale(1);
+    final cardHeight = textScale > 1.15 ? 138.0 : 118.0;
+
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 260,
-        mainAxisExtent: 100,
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 280,
+        mainAxisExtent: cardHeight,
         crossAxisSpacing: 12,
         mainAxisSpacing: 12,
       ),
@@ -1608,12 +1724,14 @@ class FeatureGrid extends StatelessWidget {
               children: [
                 Text(
                   item.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 6),
                 Text(
                   item.subtitle,
-                  maxLines: 2,
+                  maxLines: 3,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
