@@ -27,7 +27,7 @@ void main() {
         return widget is Image &&
             widget.image is AssetImage &&
             (widget.image as AssetImage).assetName ==
-                'assets/branding/sapscanner_logo.png';
+                'assets/branding/sapscanner-logo.png';
       }),
       findsOneWidget,
     );

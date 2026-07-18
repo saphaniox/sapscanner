@@ -1544,7 +1544,7 @@ class SapMark extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(8),
       child: Image.asset(
-        'assets/branding/sapscanner_logo.png',
+        'assets/branding/sapscanner-logo.png',
         width: 46,
         height: 46,
         fit: BoxFit.contain,
