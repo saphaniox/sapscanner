@@ -97,7 +97,7 @@ void main() {
   test('exports every supported format to local files', () async {
     final temp = await Directory.systemTemp.createTemp('sapscanner-export-');
     const service = DocumentExportService();
-    final batch = _sampleBatch();
+    final batch = _fixtureBatch();
 
     for (final format in ExportFormat.values) {
       final result = await service.exportBatch(
@@ -160,10 +160,17 @@ void main() {
       ExportFormat.pdf,
       outputDirectory: temp,
     );
+    final jpg = await service.exportBatch(
+      _imageBatch(imageFile.path, title: 'Converted JPG', imageQuality: 0.92),
+      ExportFormat.jpg,
+      outputDirectory: temp,
+    );
 
     expect(File(merged.outputPath).existsSync(), isTrue);
     expect(File(highQuality.outputPath).existsSync(), isTrue);
     expect(File(compressed.outputPath).existsSync(), isTrue);
+    expect(File(jpg.outputPath).existsSync(), isTrue);
+    expect(jpg.outputPath, endsWith('.jpg'));
     expect(compressed.sizeBytes, lessThan(highQuality.sizeBytes));
   });
 
@@ -225,7 +232,7 @@ void main() {
   test('stores and restores workspace json', () async {
     final temp = await Directory.systemTemp.createTemp('sapscanner-storage-');
     final storage = JsonStorageService(directory: temp);
-    final batch = _sampleBatch();
+    final batch = _fixtureBatch();
 
     await storage.saveBatch(batch);
     final loaded = await storage.loadBatch();
@@ -295,7 +302,7 @@ ScanBatch _imageBatch(
   );
 }
 
-ScanBatch _sampleBatch() {
+ScanBatch _fixtureBatch() {
   final page = ScanPage(
     id: 'page-1',
     title: 'Receipt',

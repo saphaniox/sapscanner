@@ -124,6 +124,9 @@ void main() {
 
   test('conversion workspace exposes the office conversion matrix', () {
     final titles = ConvertWorkspace.options.map((option) => option.title);
+    final inputLabels = ConvertWorkspace.options.map(
+      ConvertWorkspace.conversionInputLabel,
+    );
 
     expect(
       titles,
@@ -149,5 +152,6 @@ void main() {
         'Pages to ZIP',
       ]),
     );
+    expect(inputLabels, containsAll(['Upload image', 'Upload pdf']));
   });
 }

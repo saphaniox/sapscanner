@@ -111,12 +111,51 @@ class ScannerController extends ChangeNotifier {
     });
   }
 
-  Future<void> importFiles() async {
+  Future<void> importFiles({DocumentKind? sourceKind}) async {
     await _run(() async {
-      final result = await scannerService.importFiles();
+      final result = await scannerService.importFiles(sourceKind: sourceKind);
+      if (result.pages.isEmpty) {
+        notice = sourceKind == null
+            ? 'No file selected'
+            : 'No ${documentKindLabel(sourceKind).toLowerCase()} file selected';
+        return;
+      }
+
       _appendPages(result.pages);
       notice =
           '${result.pages.length} file${result.pages.length == 1 ? '' : 's'} imported';
+    });
+  }
+
+  Future<void> convertFiles(ConversionOption option) async {
+    await _run(() async {
+      final result = await scannerService.importFiles(
+        sourceKind: option.sourceKind,
+      );
+      final pages = _matchingConversionPages(result.pages, option);
+
+      if (pages.isEmpty) {
+        notice = option.sourceKind == null
+            ? 'No file selected'
+            : 'Choose a ${documentKindLabel(option.sourceKind!).toLowerCase()} file for ${option.title}';
+        return;
+      }
+
+      _appendPages(pages);
+
+      final conversionBatch = ScanBatch.empty().copyWith(
+        title: _conversionTitle(pages, option),
+        pages: pages,
+        activePageId: pages.last.id,
+        exportSettings: batch.exportSettings,
+        preferences: batch.preferences,
+      );
+      lastExport = await exportService.exportBatch(
+        conversionBatch,
+        option.format,
+      );
+      notice =
+          '${_selectionLabel(pages)} converted to ${option.subtitle}. ${_downloadHint(option.format)}';
     });
   }
 
@@ -366,6 +405,39 @@ class ScannerController extends ChangeNotifier {
     return pages.length == stored.pages.length
         ? stored
         : stored.copyWith(pages: pages);
+  }
+
+  List<ScanPage> _matchingConversionPages(
+    List<ScanPage> pages,
+    ConversionOption option,
+  ) {
+    final sourceKind = option.sourceKind;
+    if (sourceKind == null) {
+      return pages;
+    }
+
+    return pages
+        .where((page) => page.kind == sourceKind)
+        .toList(growable: false);
+  }
+
+  String _conversionTitle(List<ScanPage> pages, ConversionOption option) {
+    final base = pages.length == 1
+        ? pages.first.title
+        : '${pages.length} files';
+    return '$base to ${option.subtitle}';
+  }
+
+  String _selectionLabel(List<ScanPage> pages) {
+    if (pages.length == 1) {
+      return pages.first.title;
+    }
+
+    return '${pages.length} files';
+  }
+
+  String _downloadHint(ExportFormat format) {
+    return format == ExportFormat.zip ? 'Download is ready' : 'File is ready';
   }
 
   void _replacePage(String pageId, ScanPage Function(ScanPage page) update) {

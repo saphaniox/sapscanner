@@ -17,7 +17,7 @@ import '../models/scan_models.dart';
 abstract class ScanCaptureService {
   Future<ScanCaptureResult> scanDocument();
 
-  Future<ScanCaptureResult> importFiles();
+  Future<ScanCaptureResult> importFiles({DocumentKind? sourceKind});
 
   Future<ScanCaptureResult> importCameraCaptures(
     List<CapturedScanImage> captures,
@@ -602,10 +602,14 @@ class NativeScannerService implements ScanCaptureService {
   }
 
   @override
-  Future<ScanCaptureResult> importFiles() async {
+  Future<ScanCaptureResult> importFiles({DocumentKind? sourceKind}) async {
+    final pickerType = _pickerType(sourceKind);
     final result = await FilePicker.pickFiles(
       allowMultiple: true,
-      type: FileType.any,
+      type: pickerType,
+      allowedExtensions: pickerType == FileType.custom
+          ? _pickerExtensions(sourceKind)
+          : null,
       withData: false,
     );
 
@@ -621,19 +625,48 @@ class NativeScannerService implements ScanCaptureService {
         continue;
       }
 
+      final kind = _fileIntakeService.classifyPath(
+        pickedFile.name,
+        mimeType: pickedFile.extension ?? '',
+      );
+      if (sourceKind != null && kind != sourceKind) {
+        continue;
+      }
+
       pages.add(
         await _fileIntakeService.createPageFromPath(
           path,
           displayName: pickedFile.name,
           mimeType: pickedFile.extension ?? '',
-          runOcr:
-              _fileIntakeService.classifyPath(pickedFile.name) ==
-              DocumentKind.image,
+          runOcr: kind == DocumentKind.image,
         ),
       );
     }
 
     return ScanCaptureResult(pages: pages);
+  }
+
+  FileType _pickerType(DocumentKind? sourceKind) {
+    return switch (sourceKind) {
+      DocumentKind.image => FileType.image,
+      DocumentKind.pdf ||
+      DocumentKind.word ||
+      DocumentKind.spreadsheet ||
+      DocumentKind.presentation ||
+      DocumentKind.text => FileType.custom,
+      _ => FileType.any,
+    };
+  }
+
+  List<String>? _pickerExtensions(DocumentKind? sourceKind) {
+    return switch (sourceKind) {
+      DocumentKind.pdf => const ['pdf'],
+      DocumentKind.word => const ['doc', 'docx', 'rtf'],
+      DocumentKind.spreadsheet => const ['csv', 'xls', 'xlsx'],
+      DocumentKind.presentation => const ['ppt', 'pptx'],
+      DocumentKind.text => const ['txt', 'md'],
+      _ => null,
+    };
   }
 }
 
@@ -652,12 +685,7 @@ class DocumentExportService implements BatchExportService {
 
     return switch (format) {
       ExportFormat.pdf => _exportPdf(batch, outputDirectory),
-      ExportFormat.jpg => _exportZip(
-        batch,
-        'images',
-        outputDirectory,
-        resultFormat: ExportFormat.jpg,
-      ),
+      ExportFormat.jpg => _exportJpg(batch, outputDirectory),
       ExportFormat.text => _exportText(batch, outputDirectory),
       ExportFormat.word => _exportOfficeHtml(
         batch,
@@ -796,6 +824,39 @@ class DocumentExportService implements BatchExportService {
       directory: outputDirectory,
     );
     return _result(output, ExportFormat.text);
+  }
+
+  Future<ExportResult> _exportJpg(
+    ScanBatch batch,
+    Directory? outputDirectory,
+  ) async {
+    if (batch.pages.length != 1) {
+      return _exportZip(
+        batch,
+        'images',
+        outputDirectory,
+        resultFormat: ExportFormat.jpg,
+      );
+    }
+
+    final page = batch.pages.single;
+    final path = page.bestPath;
+    final file = path == null ? null : File(path);
+    if (file == null || !await file.exists() || !_isImagePath(file.path)) {
+      return _exportZip(
+        batch,
+        'images',
+        outputDirectory,
+        resultFormat: ExportFormat.jpg,
+      );
+    }
+
+    final output = await _writeOutputFile(
+      '${_safeName(page.title)}.jpg',
+      _prepareJpegImageBytes(await file.readAsBytes(), batch.exportSettings),
+      directory: outputDirectory,
+    );
+    return _result(output, ExportFormat.jpg);
   }
 
   Future<ExportResult> _exportOfficeHtml(
@@ -1028,7 +1089,7 @@ class NativeCompressionService implements CompressionService {
         items: 1,
         kind: CompressionKind.photo,
         method: compressed.sizeBytes < original
-            ? 'photo-resample'
+            ? 'photo-resize'
             : 'original-photo-kept',
         qualityPreserved: bestOutput.path == files.single.path,
       );
@@ -1203,6 +1264,18 @@ Uint8List _preparePdfImageBytes(List<int> source, ExportSettings settings) {
   }
 
   return encoded;
+}
+
+Uint8List _prepareJpegImageBytes(List<int> source, ExportSettings settings) {
+  final original = Uint8List.fromList(source);
+  final decoded = image_tools.decodeImage(original);
+  if (decoded == null) {
+    return original;
+  }
+
+  return Uint8List.fromList(
+    image_tools.encodeJpg(decoded, quality: settings.jpegQuality),
+  );
 }
 
 String _safeName(String value) {

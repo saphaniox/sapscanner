@@ -268,7 +268,7 @@ class ScanWorkspace extends StatelessWidget {
                     OutlinedButton.icon(
                       onPressed: controller.isBusy
                           ? null
-                          : controller.importFiles,
+                          : () => controller.importFiles(),
                       icon: const Icon(Icons.upload_file_outlined),
                       label: Text(controller.t('importFiles')),
                     ),
@@ -1100,7 +1100,7 @@ class ConvertWorkspace extends StatelessWidget {
         const SectionTitle(
           icon: Icons.swap_horiz,
           title: 'Convert',
-          subtitle: 'Office compatible file conversion for opened documents.',
+          subtitle: 'Choose a format, upload a file, and download the result.',
         ),
         const SizedBox(height: 12),
         _ActiveDocumentCard(controller: controller),
@@ -1110,7 +1110,9 @@ class ConvertWorkspace extends StatelessWidget {
           runSpacing: 10,
           children: [
             FilledButton.icon(
-              onPressed: controller.isBusy ? null : controller.importFiles,
+              onPressed: controller.isBusy
+                  ? null
+                  : () => controller.importFiles(),
               icon: const Icon(Icons.file_open_outlined),
               label: const Text('Open document'),
             ),
@@ -1150,21 +1152,12 @@ class ConvertWorkspace extends StatelessWidget {
           itemCount: options.length,
           itemBuilder: (context, index) {
             final option = options[index];
-            final enabled = _canConvert(activePage, option);
-            final needs = option.sourceKind == null
-                ? 'Open any document'
-                : 'Needs ${documentKindLabel(option.sourceKind!)}';
+            final isWorking = controller.isBusy;
 
             return Card(
               child: InkWell(
                 borderRadius: BorderRadius.circular(10),
-                onTap: controller.isBusy || !enabled
-                    ? null
-                    : () => controller.exportActive(
-                        option.format,
-                        label:
-                            'Converted ${documentKindLabel(activePage!.kind)} to ${option.subtitle}',
-                      ),
+                onTap: isWorking ? null : () => controller.convertFiles(option),
                 child: Padding(
                   padding: const EdgeInsets.all(14),
                   child: Column(
@@ -1174,16 +1167,16 @@ class ConvertWorkspace extends StatelessWidget {
                         children: [
                           Icon(
                             _exportIcon(option.format),
-                            color: enabled ? SapTheme.black : Colors.black38,
+                            color: isWorking ? Colors.black38 : SapTheme.black,
                           ),
                           const Spacer(),
                           Text(
                             option.subtitle,
                             style: Theme.of(context).textTheme.labelMedium
                                 ?.copyWith(
-                                  color: enabled
-                                      ? SapTheme.black
-                                      : Colors.black45,
+                                  color: isWorking
+                                      ? Colors.black45
+                                      : SapTheme.black,
                                   fontWeight: FontWeight.w800,
                                 ),
                           ),
@@ -1195,11 +1188,13 @@ class ConvertWorkspace extends StatelessWidget {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(color: enabled ? null : Colors.black45),
+                            ?.copyWith(
+                              color: isWorking ? Colors.black45 : null,
+                            ),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        enabled ? 'Tap to convert' : needs,
+                        isWorking ? 'Working...' : conversionInputLabel(option),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodySmall,
@@ -1215,12 +1210,13 @@ class ConvertWorkspace extends StatelessWidget {
     );
   }
 
-  bool _canConvert(ScanPage? page, ConversionOption option) {
-    if (page == null) {
-      return false;
+  static String conversionInputLabel(ConversionOption option) {
+    final sourceKind = option.sourceKind;
+    if (sourceKind == null) {
+      return 'Upload document';
     }
 
-    return option.sourceKind == null || page.kind == option.sourceKind;
+    return 'Upload ${documentKindLabel(sourceKind).toLowerCase()}';
   }
 
   void _openDocumentViewer(BuildContext context, ScanPage page) {

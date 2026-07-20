@@ -26,6 +26,7 @@ void main() {
 
       expect(controller.batch.pages.length, 1);
       expect(controller.activePage?.title, 'Imported receipt');
+      expect(controller.notice, '1 file imported');
 
       controller.setSearchQuery('receipt');
       expect(controller.filteredPages.length, 1);
@@ -111,9 +112,45 @@ void main() {
     expect(controller.notice, isEmpty);
     expect((await storage.loadBatch())?.pages, isEmpty);
   });
+
+  test(
+    'conversion imports the requested source type and exports output',
+    () async {
+      final temp = await Directory.systemTemp.createTemp(
+        'sapscanner-controller-',
+      );
+      final scanService = _FakeScanService();
+      final exportService = _FakeExportService(temp);
+      final controller = ScannerController(
+        scannerService: scanService,
+        exportService: exportService,
+        compressionService: _FakeCompressionService(temp),
+      );
+
+      await controller.convertFiles(
+        const ConversionOption(
+          title: 'Image to PPT',
+          subtitle: 'PowerPoint',
+          format: ExportFormat.powerPoint,
+          sourceKind: DocumentKind.image,
+        ),
+      );
+
+      expect(scanService.lastImportSourceKind, DocumentKind.image);
+      expect(controller.batch.pages.single.kind, DocumentKind.image);
+      expect(controller.lastExport?.format, ExportFormat.powerPoint);
+      expect(
+        exportService.exportedBatches.single.pages.single.kind,
+        DocumentKind.image,
+      );
+      expect(controller.notice, contains('converted to PowerPoint'));
+    },
+  );
 }
 
 class _FakeScanService implements ScanCaptureService {
+  DocumentKind? lastImportSourceKind;
+
   @override
   Future<ScanCaptureResult> importCameraCaptures(
     List<CapturedScanImage> captures,
@@ -136,15 +173,19 @@ class _FakeScanService implements ScanCaptureService {
   }
 
   @override
-  Future<ScanCaptureResult> importFiles() async {
+  Future<ScanCaptureResult> importFiles({DocumentKind? sourceKind}) async {
+    lastImportSourceKind = sourceKind;
+    final kind = sourceKind ?? DocumentKind.text;
+    final title = sourceKind == null ? 'Imported receipt' : 'Uploaded image';
+
     return ScanCaptureResult(
       pages: [
         ScanPage(
           id: 'imported-1',
-          title: 'Imported receipt',
+          title: title,
           createdAt: DateTime(2026),
           source: ScanSource.file,
-          kind: DocumentKind.text,
+          kind: kind,
           textPreview: 'receipt total 42000',
           folder: 'Inbox',
           sizeBytes: 128,
@@ -154,7 +195,9 @@ class _FakeScanService implements ScanCaptureService {
   }
 
   @override
-  Future<ScanCaptureResult> scanDocument() async => importFiles();
+  Future<ScanCaptureResult> scanDocument() async {
+    return importFiles(sourceKind: DocumentKind.image);
+  }
 }
 
 class _FakeExportService implements BatchExportService {

@@ -17,7 +17,7 @@ import '../models/scan_models.dart';
 abstract class ScanCaptureService {
   Future<ScanCaptureResult> scanDocument();
 
-  Future<ScanCaptureResult> importFiles();
+  Future<ScanCaptureResult> importFiles({DocumentKind? sourceKind});
 
   Future<ScanCaptureResult> importCameraCaptures(
     List<CapturedScanImage> captures,
@@ -499,19 +499,24 @@ class NativeScannerService implements ScanCaptureService {
   }
 
   @override
-  Future<ScanCaptureResult> importFiles() async {
+  Future<ScanCaptureResult> importFiles({DocumentKind? sourceKind}) async {
+    final pickerType = _pickerType(sourceKind);
     final result = await FilePicker.pickFiles(
       allowMultiple: true,
-      type: FileType.any,
+      type: pickerType,
+      allowedExtensions: pickerType == FileType.custom
+          ? _pickerExtensions(sourceKind)
+          : null,
       withData: true,
     );
-    return _pagesFromPickerResult(result);
+    return _pagesFromPickerResult(result, sourceKind: sourceKind);
   }
 
   Future<ScanCaptureResult> _pagesFromPickerResult(
     FilePickerResult? result, {
     ScanSource source = ScanSource.file,
     bool runOcr = false,
+    DocumentKind? sourceKind,
   }) async {
     if (result == null) {
       return const ScanCaptureResult(pages: []);
@@ -523,19 +528,47 @@ class NativeScannerService implements ScanCaptureService {
         continue;
       }
 
+      final kind = _fileIntakeService.classifyPath(
+        pickedFile.name,
+        mimeType: pickedFile.extension ?? '',
+      );
+      if (sourceKind != null && kind != sourceKind) {
+        continue;
+      }
+
       pages.add(
         await _fileIntakeService.createPageFromPickedFile(
           pickedFile,
           source: source,
-          runOcr:
-              runOcr ||
-              _fileIntakeService.classifyPath(pickedFile.name) ==
-                  DocumentKind.image,
+          runOcr: runOcr || kind == DocumentKind.image,
         ),
       );
     }
 
     return ScanCaptureResult(pages: pages);
+  }
+
+  FileType _pickerType(DocumentKind? sourceKind) {
+    return switch (sourceKind) {
+      DocumentKind.image => FileType.image,
+      DocumentKind.pdf ||
+      DocumentKind.word ||
+      DocumentKind.spreadsheet ||
+      DocumentKind.presentation ||
+      DocumentKind.text => FileType.custom,
+      _ => FileType.any,
+    };
+  }
+
+  List<String>? _pickerExtensions(DocumentKind? sourceKind) {
+    return switch (sourceKind) {
+      DocumentKind.pdf => const ['pdf'],
+      DocumentKind.word => const ['doc', 'docx', 'rtf'],
+      DocumentKind.spreadsheet => const ['csv', 'xls', 'xlsx'],
+      DocumentKind.presentation => const ['ppt', 'pptx'],
+      DocumentKind.text => const ['txt', 'md'],
+      _ => null,
+    };
   }
 }
 
@@ -554,7 +587,7 @@ class DocumentExportService implements BatchExportService {
 
     return switch (format) {
       ExportFormat.pdf => _exportPdf(batch),
-      ExportFormat.jpg => _exportZip(batch, 'images', ExportFormat.jpg),
+      ExportFormat.jpg => _exportJpg(batch),
       ExportFormat.text => _exportText(batch),
       ExportFormat.word => _exportOfficeHtml(batch, format, 'doc'),
       ExportFormat.excel => _exportOfficeHtml(batch, format, 'xls'),
@@ -676,6 +709,31 @@ class DocumentExportService implements BatchExportService {
     );
   }
 
+  Future<ExportResult> _exportJpg(ScanBatch batch) async {
+    if (batch.pages.length != 1) {
+      return _exportZip(batch, 'images', ExportFormat.jpg);
+    }
+
+    final page = batch.pages.single;
+    final path = page.bestPath;
+    final bytes = path == null ? null : _webBytes[path];
+    final name = path == null
+        ? page.fileName
+        : _webNames[path] ?? page.fileName;
+    if (bytes == null || !_isImagePath(name)) {
+      return _exportZip(batch, 'images', ExportFormat.jpg);
+    }
+
+    final jpgBytes = _prepareJpegImageBytes(bytes, batch.exportSettings);
+    final fileName = '${_safeName(page.title)}.jpg';
+    final outputPath = _downloadBytes(fileName, jpgBytes, 'image/jpeg');
+    return ExportResult(
+      outputPath: outputPath,
+      format: ExportFormat.jpg,
+      sizeBytes: jpgBytes.length,
+    );
+  }
+
   Future<ExportResult> _exportOfficeHtml(
     ScanBatch batch,
     ExportFormat format,
@@ -732,12 +790,21 @@ class DocumentExportService implements BatchExportService {
 
     final bytes = Uint8List.fromList(utf8.encode('\ufeff$html'));
     final fileName = '${_safeName(batch.title)}.$extension';
-    final outputPath = _downloadBytes(fileName, bytes, 'text/html');
+    final outputPath = _downloadBytes(fileName, bytes, _officeMimeType(format));
     return ExportResult(
       outputPath: outputPath,
       format: format,
       sizeBytes: bytes.length,
     );
+  }
+
+  String _officeMimeType(ExportFormat format) {
+    return switch (format) {
+      ExportFormat.word => 'application/msword',
+      ExportFormat.excel => 'application/vnd.ms-excel',
+      ExportFormat.powerPoint => 'application/vnd.ms-powerpoint',
+      _ => 'text/html',
+    };
   }
 
   Future<ExportResult> _exportZip(
@@ -902,7 +969,7 @@ class NativeCompressionService implements CompressionService {
         items: 1,
         kind: CompressionKind.photo,
         method: processed.bytes.length < entry.bytes.length
-            ? 'photo-resample'
+            ? 'photo-resize'
             : 'original-photo-kept',
         qualityPreserved: processed.bytes.length >= entry.bytes.length,
       );
@@ -1159,6 +1226,17 @@ Uint8List _preparePdfImageBytes(Uint8List source, ExportSettings settings) {
   }
 
   return encoded;
+}
+
+Uint8List _prepareJpegImageBytes(Uint8List source, ExportSettings settings) {
+  final decoded = image_tools.decodeImage(source);
+  if (decoded == null) {
+    return source;
+  }
+
+  return Uint8List.fromList(
+    image_tools.encodeJpg(decoded, quality: settings.jpegQuality),
+  );
 }
 
 String _safeName(String value) {
