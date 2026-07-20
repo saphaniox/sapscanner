@@ -27,11 +27,14 @@ void main() {
         return widget is Image &&
             widget.image is AssetImage &&
             (widget.image as AssetImage).assetName ==
-                'assets/branding/sapscanner-logo.png';
+                'assets/branding/sapscanner_logo.png';
       }),
       findsOneWidget,
     );
-    expect(find.text('Scan smarter. Work faster.'), findsOneWidget);
+    expect(
+      find.text('Scan with clarity. Work with confidence.'),
+      findsOneWidget,
+    );
     expect(find.text('Scan workspace'), findsOneWidget);
     expect(find.text('Import files'), findsOneWidget);
   });

@@ -5,6 +5,7 @@ import 'package:image/image.dart' as image;
 
 void main() {
   final logo = _drawLogo();
+  _writePng('assets/branding/sapscanner_logo.png', logo);
   _writePng('assets/branding/sapscanner-logo.png', logo);
   _writePng('web/favicon.png', image.copyResize(logo, width: 64, height: 64));
   _writePng('web/icons/Icon-192.png', _iconCanvas(logo, 192, maskable: false));
