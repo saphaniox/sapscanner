@@ -37,6 +37,7 @@ void main() {
     );
     expect(find.text('Scan workspace'), findsOneWidget);
     expect(find.text('Import files'), findsOneWidget);
+    expect(find.byIcon(Icons.add_photo_alternate_outlined), findsNothing);
   });
 
   testWidgets('shows conversion PDF tools and compression workspace', (

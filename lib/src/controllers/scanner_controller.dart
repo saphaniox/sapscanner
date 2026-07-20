@@ -81,10 +81,16 @@ class ScannerController extends ChangeNotifier {
     await _run(() async {
       final stored = await storage.loadBatch();
       if (stored != null) {
-        batch = stored;
+        final restored = _withoutRetiredGeneratedPages(stored);
+        batch = restored;
+        if (restored.pages.length != stored.pages.length) {
+          await storage.saveBatch(restored);
+        }
       }
       isHydrated = true;
-      notice = stored == null ? '' : 'Workspace restored';
+      notice = stored == null || batch.pages.isEmpty
+          ? ''
+          : 'Workspace restored';
     }, saveAfter: false);
   }
 
@@ -112,27 +118,6 @@ class ScannerController extends ChangeNotifier {
       notice =
           '${result.pages.length} file${result.pages.length == 1 ? '' : 's'} imported';
     });
-  }
-
-  void addDemoScan() {
-    final pageNumber = batch.pages.length + 1;
-    final page = ScanPage(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      title: 'Demo scan $pageNumber',
-      createdAt: DateTime.now(),
-      source: ScanSource.generated,
-      kind: DocumentKind.text,
-      ocrText: 'SapScanner native Flutter workspace',
-      textPreview: 'Demo text for export, search, OCR, and conversion testing.',
-      folder: batch.preferences.defaultFolder,
-      tags: const ['demo', 'native'],
-      sizeBytes: 420000,
-    );
-
-    _appendPages([page]);
-    notice = 'Demo scan added';
-    _saveQuietly();
-    notifyListeners();
   }
 
   Future<void> export(ExportFormat format) async {
@@ -372,6 +357,15 @@ class ScannerController extends ChangeNotifier {
 
     final nextPages = [...batch.pages, ...pages];
     batch = batch.copyWith(pages: nextPages, activePageId: pages.last.id);
+  }
+
+  ScanBatch _withoutRetiredGeneratedPages(ScanBatch stored) {
+    final pages = stored.pages
+        .where((page) => page.source != ScanSource.generated)
+        .toList(growable: false);
+    return pages.length == stored.pages.length
+        ? stored
+        : stored.copyWith(pages: pages);
   }
 
   void _replacePage(String pageId, ScanPage Function(ScanPage page) update) {

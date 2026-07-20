@@ -78,18 +78,38 @@ void main() {
     },
   );
 
-  test('adds demo scans without platform services', () {
-    final controller = ScannerController(
-      scannerService: _FakeScanService(),
-      exportService: _FakeExportService(Directory.systemTemp),
-      compressionService: _FakeCompressionService(Directory.systemTemp),
+  test('drops retired generated pages on restore', () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'sapscanner-controller-',
+    );
+    final storage = JsonStorageService(directory: temp);
+    await storage.saveBatch(
+      ScanBatch.empty().copyWith(
+        pages: [
+          ScanPage(
+            id: 'seed-page',
+            title: 'Seed page',
+            createdAt: DateTime(2026),
+            source: ScanSource.generated,
+            kind: DocumentKind.text,
+          ),
+        ],
+        activePageId: 'seed-page',
+      ),
     );
 
-    controller.addDemoScan();
+    final controller = ScannerController(
+      scannerService: _FakeScanService(),
+      exportService: _FakeExportService(temp),
+      compressionService: _FakeCompressionService(temp),
+      storageService: storage,
+    );
 
-    expect(controller.batch.pages.length, 1);
-    expect(controller.activePage?.title, 'Demo scan 1');
-    expect(controller.activePage?.kind, DocumentKind.text);
+    await controller.restore();
+
+    expect(controller.batch.pages, isEmpty);
+    expect(controller.notice, isEmpty);
+    expect((await storage.loadBatch())?.pages, isEmpty);
   });
 }
 

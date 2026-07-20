@@ -272,13 +272,6 @@ class ScanWorkspace extends StatelessWidget {
                       icon: const Icon(Icons.upload_file_outlined),
                       label: Text(controller.t('importFiles')),
                     ),
-                    OutlinedButton.icon(
-                      onPressed: controller.isBusy
-                          ? null
-                          : controller.addDemoScan,
-                      icon: const Icon(Icons.add_photo_alternate_outlined),
-                      label: Text(controller.t('addDemo')),
-                    ),
                     IconButton.filledTonal(
                       tooltip: controller.t('clear'),
                       onPressed: controller.isBusy
@@ -496,101 +489,106 @@ class _FullScreenScannerViewState extends State<FullScreenScannerView> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      body: Stack(
-        children: [
-          Positioned.fill(child: _buildCameraBody()),
-          const Positioned.fill(child: _ScannerGuideOverlay()),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  IconButton.filled(
-                    tooltip: 'Close',
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close),
-                  ),
-                  Row(
-                    children: [
-                      IconButton.filledTonal(
-                        tooltip: 'Flash',
-                        onPressed: isInitializing || isCapturing
-                            ? null
-                            : _toggleFlash,
-                        icon: Icon(
-                          flashMode == FlashMode.off
-                              ? Icons.flash_off
-                              : Icons.flash_on,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton.filledTonal(
-                        tooltip: 'Switch camera',
-                        onPressed:
-                            cameras.length < 2 || isInitializing || isCapturing
-                            ? null
-                            : _switchCamera,
-                        icon: const Icon(Icons.cameraswitch_outlined),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (errorMessage != null)
-            Positioned(
-              left: 16,
-              right: 16,
-              top: MediaQuery.paddingOf(context).top + 74,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: const Color(0xDDFFF4DE),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(errorMessage!, textAlign: TextAlign.center),
-                ),
-              ),
-            ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: SafeArea(
+      resizeToAvoidBottomInset: false,
+      body: SizedBox.expand(
+        child: Stack(
+          children: [
+            Positioned.fill(child: _buildCameraBody()),
+            const Positioned.fill(child: _ScannerGuideOverlay()),
+            SafeArea(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 18, 24, 28),
+                padding: const EdgeInsets.all(12),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    SizedBox.square(
-                      dimension: 84,
-                      child: FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: SapTheme.black,
-                          shape: const CircleBorder(),
-                          padding: EdgeInsets.zero,
+                    IconButton.filled(
+                      tooltip: 'Close',
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close),
+                    ),
+                    Row(
+                      children: [
+                        IconButton.filledTonal(
+                          tooltip: 'Flash',
+                          onPressed: isInitializing || isCapturing
+                              ? null
+                              : _toggleFlash,
+                          icon: Icon(
+                            flashMode == FlashMode.off
+                                ? Icons.flash_off
+                                : Icons.flash_on,
+                          ),
                         ),
-                        onPressed: canCapture ? _captureImage : null,
-                        child: isCapturing
-                            ? const SizedBox.square(
-                                dimension: 28,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 3,
-                                ),
-                              )
-                            : const Icon(Icons.camera, size: 34),
-                      ),
+                        const SizedBox(width: 8),
+                        IconButton.filledTonal(
+                          tooltip: 'Switch camera',
+                          onPressed:
+                              cameras.length < 2 ||
+                                  isInitializing ||
+                                  isCapturing
+                              ? null
+                              : _switchCamera,
+                          icon: const Icon(Icons.cameraswitch_outlined),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
             ),
-          ),
-        ],
+            if (errorMessage != null)
+              Positioned(
+                left: 16,
+                right: 16,
+                top: MediaQuery.paddingOf(context).top + 74,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: const Color(0xDDFFF4DE),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(errorMessage!, textAlign: TextAlign.center),
+                  ),
+                ),
+              ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 18, 24, 28),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      SizedBox.square(
+                        dimension: 84,
+                        child: FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.white,
+                            foregroundColor: SapTheme.black,
+                            shape: const CircleBorder(),
+                            padding: EdgeInsets.zero,
+                          ),
+                          onPressed: canCapture ? _captureImage : null,
+                          child: isCapturing
+                              ? const SizedBox.square(
+                                  dimension: 28,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 3,
+                                  ),
+                                )
+                              : const Icon(Icons.camera, size: 34),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -598,15 +596,19 @@ class _FullScreenScannerViewState extends State<FullScreenScannerView> {
   Widget _buildCameraBody() {
     final activeCamera = camera;
     if (isInitializing) {
-      return const Center(child: CircularProgressIndicator());
+      return const SizedBox.expand(
+        child: Center(child: CircularProgressIndicator()),
+      );
     }
 
     if (activeCamera == null || !activeCamera.value.isInitialized) {
-      return const Center(
-        child: Icon(
-          Icons.no_photography_outlined,
-          color: Colors.white54,
-          size: 72,
+      return const SizedBox.expand(
+        child: Center(
+          child: Icon(
+            Icons.no_photography_outlined,
+            color: Colors.white54,
+            size: 72,
+          ),
         ),
       );
     }
@@ -615,7 +617,7 @@ class _FullScreenScannerViewState extends State<FullScreenScannerView> {
       builder: (context, constraints) {
         final previewSize = activeCamera.value.previewSize;
         if (previewSize == null) {
-          return CameraPreview(activeCamera);
+          return SizedBox.expand(child: CameraPreview(activeCamera));
         }
 
         final isPortrait =
@@ -627,13 +629,26 @@ class _FullScreenScannerViewState extends State<FullScreenScannerView> {
             ? previewSize.width
             : previewSize.height;
 
-        return ClipRect(
-          child: FittedBox(
-            fit: BoxFit.cover,
-            child: SizedBox(
-              width: previewWidth,
-              height: previewHeight,
-              child: CameraPreview(activeCamera),
+        final viewportAspect = constraints.maxWidth / constraints.maxHeight;
+        final previewAspect = previewWidth / previewHeight;
+        final coverWidth = viewportAspect > previewAspect
+            ? constraints.maxWidth
+            : constraints.maxHeight * previewAspect;
+        final coverHeight = viewportAspect > previewAspect
+            ? constraints.maxWidth / previewAspect
+            : constraints.maxHeight;
+
+        return SizedBox.expand(
+          child: ClipRect(
+            child: OverflowBox(
+              maxWidth: coverWidth,
+              maxHeight: coverHeight,
+              alignment: Alignment.center,
+              child: SizedBox(
+                width: coverWidth,
+                height: coverHeight,
+                child: CameraPreview(activeCamera),
+              ),
             ),
           ),
         );
