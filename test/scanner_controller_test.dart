@@ -113,39 +113,46 @@ void main() {
     expect((await storage.loadBatch())?.pages, isEmpty);
   });
 
-  test(
-    'conversion imports the requested source type and exports output',
-    () async {
-      final temp = await Directory.systemTemp.createTemp(
-        'sapscanner-controller-',
-      );
-      final scanService = _FakeScanService();
-      final exportService = _FakeExportService(temp);
-      final controller = ScannerController(
-        scannerService: scanService,
-        exportService: exportService,
-        compressionService: _FakeCompressionService(temp),
-      );
+  test('conversion preview imports before exporting output', () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'sapscanner-controller-',
+    );
+    final scanService = _FakeScanService();
+    final exportService = _FakeExportService(temp);
+    final controller = ScannerController(
+      scannerService: scanService,
+      exportService: exportService,
+      compressionService: _FakeCompressionService(temp),
+    );
 
-      await controller.convertFiles(
-        const ConversionOption(
-          title: 'Image to PPT',
-          subtitle: 'PowerPoint',
-          format: ExportFormat.powerPoint,
-          sourceKind: DocumentKind.image,
-        ),
-      );
+    const option = ConversionOption(
+      title: 'Image to PPT',
+      subtitle: 'PowerPoint',
+      format: ExportFormat.powerPoint,
+      sourceKind: DocumentKind.image,
+    );
 
-      expect(scanService.lastImportSourceKind, DocumentKind.image);
-      expect(controller.batch.pages.single.kind, DocumentKind.image);
-      expect(controller.lastExport?.format, ExportFormat.powerPoint);
-      expect(
-        exportService.exportedBatches.single.pages.single.kind,
-        DocumentKind.image,
-      );
-      expect(controller.notice, contains('converted to PowerPoint'));
-    },
-  );
+    final pages = await controller.prepareConversion(option);
+
+    expect(scanService.lastImportSourceKind, DocumentKind.image);
+    expect(pages.single.kind, DocumentKind.image);
+    expect(controller.batch.pages.single.kind, DocumentKind.image);
+    expect(controller.lastExport, isNull);
+    expect(exportService.exportedBatches, isEmpty);
+
+    await controller.convertPreparedFiles(option, pages);
+
+    expect(controller.lastExport?.format, ExportFormat.powerPoint);
+    expect(
+      exportService.exportedBatches.single.title,
+      startsWith('SapScanner '),
+    );
+    expect(
+      exportService.exportedBatches.single.pages.single.kind,
+      DocumentKind.image,
+    );
+    expect(controller.notice, contains('converted to PowerPoint'));
+  });
 }
 
 class _FakeScanService implements ScanCaptureService {

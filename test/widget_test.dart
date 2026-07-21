@@ -154,4 +154,43 @@ void main() {
     );
     expect(inputLabels, containsAll(['Upload image', 'Upload pdf']));
   });
+
+  testWidgets('conversion preview shows selected file before export', (
+    tester,
+  ) async {
+    final controller = ScannerController(
+      scannerService: NativeScannerService(),
+      exportService: DocumentExportService(),
+      compressionService: NativeCompressionService(),
+    );
+    final page = ScanPage(
+      id: 'preview-1',
+      title: 'Invoice image',
+      createdAt: DateTime(2026),
+      source: ScanSource.file,
+      kind: DocumentKind.image,
+      fileName: 'invoice.png',
+      textPreview: 'Invoice preview text',
+      sizeBytes: 2048,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ConversionPreviewScreen(
+          controller: controller,
+          option: const ConversionOption(
+            title: 'Image to PPT',
+            subtitle: 'PowerPoint',
+            format: ExportFormat.powerPoint,
+            sourceKind: DocumentKind.image,
+          ),
+          pages: [page],
+        ),
+      ),
+    );
+
+    expect(find.text('File preview'), findsOneWidget);
+    expect(find.text('Invoice preview text'), findsWidgets);
+    expect(find.text('Convert to PowerPoint'), findsOneWidget);
+  });
 }

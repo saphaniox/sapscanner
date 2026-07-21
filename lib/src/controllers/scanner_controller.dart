@@ -128,6 +128,14 @@ class ScannerController extends ChangeNotifier {
   }
 
   Future<void> convertFiles(ConversionOption option) async {
+    final pages = await prepareConversion(option);
+    if (pages.isNotEmpty) {
+      await convertPreparedFiles(option, pages);
+    }
+  }
+
+  Future<List<ScanPage>> prepareConversion(ConversionOption option) async {
+    final selectedPages = <ScanPage>[];
     await _run(() async {
       final result = await scannerService.importFiles(
         sourceKind: option.sourceKind,
@@ -142,11 +150,30 @@ class ScannerController extends ChangeNotifier {
       }
 
       _appendPages(pages);
+      selectedPages.addAll(pages);
+      notice = '${_selectionLabel(pages)} ready to preview';
+    });
+
+    return selectedPages;
+  }
+
+  Future<void> convertPreparedFiles(
+    ConversionOption option,
+    List<ScanPage> pages,
+  ) async {
+    await _run(() async {
+      final selectedPages = _matchingConversionPages(pages, option);
+      if (selectedPages.isEmpty) {
+        notice = option.sourceKind == null
+            ? 'No file selected'
+            : 'Choose a ${documentKindLabel(option.sourceKind!).toLowerCase()} file for ${option.title}';
+        return;
+      }
 
       final conversionBatch = ScanBatch.empty().copyWith(
-        title: _conversionTitle(pages, option),
-        pages: pages,
-        activePageId: pages.last.id,
+        title: ScanBatch.defaultTitle(),
+        pages: selectedPages,
+        activePageId: selectedPages.last.id,
         exportSettings: batch.exportSettings,
         preferences: batch.preferences,
       );
@@ -155,7 +182,7 @@ class ScannerController extends ChangeNotifier {
         option.format,
       );
       notice =
-          '${_selectionLabel(pages)} converted to ${option.subtitle}. ${_downloadHint(option.format)}';
+          '${_selectionLabel(selectedPages)} converted to ${option.subtitle}. ${_downloadHint(option.format)}';
     });
   }
 
@@ -419,13 +446,6 @@ class ScannerController extends ChangeNotifier {
     return pages
         .where((page) => page.kind == sourceKind)
         .toList(growable: false);
-  }
-
-  String _conversionTitle(List<ScanPage> pages, ConversionOption option) {
-    final base = pages.length == 1
-        ? pages.first.title
-        : '${pages.length} files';
-    return '$base to ${option.subtitle}';
   }
 
   String _selectionLabel(List<ScanPage> pages) {

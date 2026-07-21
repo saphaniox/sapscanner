@@ -10,6 +10,14 @@ import 'package:sapscanner/src/services/scanner_services.dart';
 import 'package:sapscanner/src/services/storage_service.dart';
 
 void main() {
+  test('uses SapScanner date as the default document title', () {
+    expect(
+      ScanBatch.defaultTitle(DateTime(2026, 7, 21)),
+      'SapScanner 2026-07-21',
+    );
+    expect(ScanBatch.empty().title, startsWith('SapScanner '));
+  });
+
   test('classifies supported document and media formats', () {
     const service = FileIntakeService();
 
@@ -108,6 +116,14 @@ void main() {
       expect(result.format, format);
       expect(File(result.outputPath).existsSync(), isTrue);
       expect(result.sizeBytes, greaterThan(0));
+      if (format == ExportFormat.word ||
+          format == ExportFormat.excel ||
+          format == ExportFormat.powerPoint) {
+        expect(
+          await File(result.outputPath).readAsString(),
+          contains('content: "SapScanner"'),
+        );
+      }
     }
   });
 

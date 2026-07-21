@@ -667,10 +667,7 @@ class DocumentExportService implements BatchExportService {
                 ..add(pw.Text(text, maxLines: 16));
             }
 
-            return pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: children,
-            );
+            return _pdfWatermarkedPage(children);
           },
         ),
       );
@@ -773,12 +770,14 @@ class DocumentExportService implements BatchExportService {
   <meta charset="utf-8">
   <title>${_escapeHtml(batch.title)}</title>
   <style>
-    body { font-family: Arial, sans-serif; color: #17231f; }
+    body { font-family: Arial, sans-serif; color: #17231f; position: relative; }
+    body::before { content: "SapScanner"; position: fixed; top: 45%; left: 50%; transform: translate(-50%, -50%) rotate(-24deg); font-size: 78px; font-weight: 800; color: rgba(16, 16, 16, 0.055); pointer-events: none; z-index: 0; }
+    body > * { position: relative; z-index: 1; }
     table { border-collapse: collapse; width: 100%; }
     th, td { border: 1px solid #cad1ce; padding: 8px; vertical-align: top; }
     th { background: #101010; color: #fff; }
-    .page { page-break-after: always; margin-bottom: 24px; }
-    .slide { width: 960px; min-height: 540px; page-break-after: always; padding: 34px; box-sizing: border-box; }
+    .page { page-break-after: always; margin-bottom: 24px; position: relative; }
+    .slide { width: 960px; min-height: 540px; page-break-after: always; padding: 34px; box-sizing: border-box; position: relative; }
   </style>
 </head>
 <body>
@@ -1195,6 +1194,39 @@ String _pageText(ScanPage page) {
     page.textPreview,
     page.notes,
   ].where((value) => value.trim().isNotEmpty).join('\n\n').trim();
+}
+
+pw.Widget _pdfWatermarkedPage(List<pw.Widget> children) {
+  return pw.Stack(
+    children: [
+      pw.Positioned(
+        left: 0,
+        right: 0,
+        top: 0,
+        bottom: 0,
+        child: pw.Center(
+          child: pw.Transform.rotate(
+            angle: -0.42,
+            child: pw.Opacity(
+              opacity: 0.08,
+              child: pw.Text(
+                'SapScanner',
+                style: pw.TextStyle(
+                  color: PdfColors.grey600,
+                  fontSize: 72,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+      pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: children,
+      ),
+    ],
+  );
 }
 
 Uint8List _preparePdfImageBytes(Uint8List source, ExportSettings settings) {

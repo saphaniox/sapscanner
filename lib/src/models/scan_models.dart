@@ -429,10 +429,15 @@ class ScanBatch {
     final now = DateTime.now();
     return ScanBatch(
       id: _createId(),
-      title: 'Sap scan',
+      title: defaultTitle(now),
       createdAt: now,
       updatedAt: now,
     );
+  }
+
+  static String defaultTitle([DateTime? date]) {
+    final value = date ?? DateTime.now();
+    return 'SapScanner ${_dateStamp(value)}';
   }
 
   int get totalSizeBytes =>
@@ -495,7 +500,7 @@ class ScanBatch {
       id: (json['id'] as String?) ?? _createId(),
       title: (json['title'] as String?)?.trim().isNotEmpty == true
           ? json['title']! as String
-          : 'Sap scan',
+          : defaultTitle(),
       createdAt: _date(json['createdAt']),
       updatedAt: json['updatedAt'] == null ? null : _date(json['updatedAt']),
       pages: pages,
@@ -686,3 +691,9 @@ List<Map<String, Object?>> _maps(Object? value) {
 }
 
 String _createId() => DateTime.now().microsecondsSinceEpoch.toString();
+
+String _dateStamp(DateTime date) {
+  final month = date.month.toString().padLeft(2, '0');
+  final day = date.day.toString().padLeft(2, '0');
+  return '${date.year}-$month-$day';
+}

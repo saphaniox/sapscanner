@@ -1157,7 +1157,9 @@ class ConvertWorkspace extends StatelessWidget {
             return Card(
               child: InkWell(
                 borderRadius: BorderRadius.circular(10),
-                onTap: isWorking ? null : () => controller.convertFiles(option),
+                onTap: isWorking
+                    ? null
+                    : () => _startConversion(context, option),
                 child: Padding(
                   padding: const EdgeInsets.all(14),
                   child: Column(
@@ -1217,6 +1219,26 @@ class ConvertWorkspace extends StatelessWidget {
     }
 
     return 'Upload ${documentKindLabel(sourceKind).toLowerCase()}';
+  }
+
+  Future<void> _startConversion(
+    BuildContext context,
+    ConversionOption option,
+  ) async {
+    final pages = await controller.prepareConversion(option);
+    if (!context.mounted || pages.isEmpty) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ConversionPreviewScreen(
+          controller: controller,
+          option: option,
+          pages: pages,
+        ),
+      ),
+    );
   }
 
   void _openDocumentViewer(BuildContext context, ScanPage page) {
@@ -1281,6 +1303,177 @@ class _ActiveDocumentCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class ConversionPreviewScreen extends StatelessWidget {
+  const ConversionPreviewScreen({
+    super.key,
+    required this.controller,
+    required this.option,
+    required this.pages,
+  });
+
+  final ScannerController controller;
+  final ConversionOption option;
+  final List<ScanPage> pages;
+
+  @override
+  Widget build(BuildContext context) {
+    final firstPage = pages.first;
+    final content = _previewText(firstPage);
+    final target = option.subtitle;
+
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(
+              option.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          bottomNavigationBar: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+              child: FilledButton.icon(
+                onPressed: controller.isBusy
+                    ? null
+                    : () async {
+                        await controller.convertPreparedFiles(option, pages);
+                        if (!context.mounted) {
+                          return;
+                        }
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              controller.notice.isEmpty
+                                  ? 'Conversion complete'
+                                  : controller.notice,
+                            ),
+                          ),
+                        );
+                      },
+                icon: controller.isBusy
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.file_download_done_outlined),
+                label: Text(
+                  controller.isBusy ? 'Converting...' : 'Convert to $target',
+                ),
+              ),
+            ),
+          ),
+          body: ResponsiveListView(
+            maxWidth: 920,
+            children: [
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: SapTheme.black,
+                        foregroundColor: Colors.white,
+                        child: Icon(_exportIcon(option.format)),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              pages.length == 1
+                                  ? firstPage.title
+                                  : '${pages.length} files selected',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(fontWeight: FontWeight.w800),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${documentKindLabel(firstPage.kind)} to $target',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              ActivePagePreview(page: firstPage),
+              const SizedBox(height: 12),
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'File preview',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        constraints: const BoxConstraints(minHeight: 180),
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAF9),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFDDE5E1)),
+                        ),
+                        child: SelectableText(
+                          content,
+                          style: Theme.of(
+                            context,
+                          ).textTheme.bodyMedium?.copyWith(height: 1.45),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (pages.length > 1) ...[
+                const SizedBox(height: 12),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Selected files',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        for (final page in pages)
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(_kindIcon(page.kind)),
+                            title: Text(
+                              page.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(_formatBytes(page.sizeBytes)),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 }
