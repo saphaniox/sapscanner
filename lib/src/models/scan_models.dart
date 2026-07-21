@@ -111,7 +111,7 @@ class ScanQualitySettings {
 class ExportSettings {
   const ExportSettings({
     this.pageSize = PageSize.a4,
-    this.imageQuality = 0.86,
+    this.imageQuality = 0.96,
     this.includeTextLayer = true,
     this.includeAttachmentPages = true,
   });
@@ -135,7 +135,7 @@ class ExportSettings {
       pageSize: _enumByName(PageSize.values, json['pageSize'], PageSize.a4),
       imageQuality: _double(
         json['imageQuality'],
-        fallback: 0.86,
+        fallback: 0.96,
       ).clamp(0.1, 1.0),
       includeTextLayer: json['includeTextLayer'] != false,
       includeAttachmentPages: json['includeAttachmentPages'] != false,

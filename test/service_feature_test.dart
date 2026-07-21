@@ -16,6 +16,7 @@ void main() {
       'SapScanner 2026-07-21',
     );
     expect(ScanBatch.empty().title, startsWith('SapScanner '));
+    expect(const ExportSettings().imageQuality, 0.96);
   });
 
   test('classifies supported document and media formats', () {
@@ -57,6 +58,42 @@ void main() {
     expect(
       await service.extractText(docxFile.path, DocumentKind.word),
       contains('Pearl office text'),
+    );
+
+    final tableDocxFile = File(
+      '${temp.path}${Platform.pathSeparator}table-letter.docx',
+    );
+    final tableArchive = Archive()
+      ..addFile(
+        ArchiveFile.string(
+          'word/document.xml',
+          '<w:document><w:body><w:tbl><w:tr><w:tc><w:p><w:r><w:t>Name</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Total</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>',
+        ),
+      );
+    await tableDocxFile.writeAsBytes(ZipEncoder().encode(tableArchive));
+    expect(
+      await service.extractText(tableDocxFile.path, DocumentKind.word),
+      contains('Name\tTotal'),
+    );
+
+    final xlsxFile = File('${temp.path}${Platform.pathSeparator}sheet.xlsx');
+    final sheetArchive = Archive()
+      ..addFile(
+        ArchiveFile.string(
+          'xl/sharedStrings.xml',
+          '<sst><si><t>Item</t></si><si><t>Amount</t></si><si><t>Scanner</t></si></sst>',
+        ),
+      )
+      ..addFile(
+        ArchiveFile.string(
+          'xl/worksheets/sheet1.xml',
+          '<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="C1" t="s"><v>1</v></c></row><row r="2"><c r="A2" t="s"><v>2</v></c><c r="C2"><v>100</v></c></row></sheetData></worksheet>',
+        ),
+      );
+    await xlsxFile.writeAsBytes(ZipEncoder().encode(sheetArchive));
+    expect(
+      await service.extractText(xlsxFile.path, DocumentKind.spreadsheet),
+      contains('Item\t\tAmount\nScanner\t\t100'),
     );
 
     final pdfFile = File('${temp.path}${Platform.pathSeparator}simple.pdf');
@@ -123,6 +160,10 @@ void main() {
           await File(result.outputPath).readAsString(),
           contains('content: "SapScanner"'),
         );
+        expect(
+          await File(result.outputPath).readAsString(),
+          contains('white-space: pre-wrap'),
+        );
       }
     }
   });
@@ -188,6 +229,31 @@ void main() {
     expect(File(jpg.outputPath).existsSync(), isTrue);
     expect(jpg.outputPath, endsWith('.jpg'));
     expect(compressed.sizeBytes, lessThan(highQuality.sizeBytes));
+  });
+
+  test('embeds image pages in office exports', () async {
+    final temp = await Directory.systemTemp.createTemp('sapscanner-office-');
+    final imageFile = File('${temp.path}${Platform.pathSeparator}scan.jpg');
+    final image = image_tools.Image(width: 120, height: 90)
+      ..clear(image_tools.ColorRgb8(245, 248, 244));
+    await imageFile.writeAsBytes(image_tools.encodeJpg(image, quality: 96));
+
+    const service = DocumentExportService();
+    final batch = _imageBatch(
+      imageFile.path,
+      title: 'Image office export',
+      imageQuality: 0.96,
+    );
+    final result = await service.exportBatch(
+      batch,
+      ExportFormat.powerPoint,
+      outputDirectory: temp,
+    );
+    final html = await File(result.outputPath).readAsString();
+
+    expect(html, contains('class="page-image"'));
+    expect(html, contains('data:image/jpeg;base64,'));
+    expect(html, contains('white-space: pre-wrap'));
   });
 
   test('compresses files, folders, and single images', () async {

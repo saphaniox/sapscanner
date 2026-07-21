@@ -232,10 +232,8 @@ class FileIntakeService {
       mimeType: pickedFile.extension ?? '',
       folder: folder,
       textPreview: text,
-      ocrText: runOcr && kind == DocumentKind.image
-          ? 'Browser preview import. Native OCR runs on Android.'
-          : '',
-      tags: [documentKindLabel(kind).toLowerCase(), 'web'],
+      ocrText: '',
+      tags: [documentKindLabel(kind).toLowerCase(), 'import'],
       sizeBytes: bytes.length,
       width: size.width,
       height: size.height,
@@ -266,8 +264,8 @@ class FileIntakeService {
       mimeType: capture.mimeType,
       folder: folder,
       textPreview: '',
-      ocrText: 'Browser camera capture. Native OCR runs on Android.',
-      tags: const ['camera', 'fullscreen', 'web'],
+      ocrText: '',
+      tags: const ['camera', 'capture'],
       sizeBytes: bytes.length,
       width: size.width,
       height: size.height,
@@ -344,21 +342,7 @@ class FileIntakeService {
       (file) => RegExp(r'xl/worksheets/sheet\d+\.xml$').hasMatch(file.name),
     )) {
       final xml = utf8.decode(file.content, allowMalformed: true);
-      final cells =
-          RegExp(
-                r'<c[^>]*?(?:t="s")?[^>]*>\s*<v>(.*?)</v>\s*</c>',
-                dotAll: true,
-              )
-              .allMatches(xml)
-              .map((match) {
-                final raw = match.group(1) ?? '';
-                final index = int.tryParse(raw);
-                return index == null || index >= sharedStrings.length
-                    ? raw
-                    : sharedStrings[index];
-              })
-              .where((value) => value.trim().isNotEmpty);
-      buffers.add(cells.join(', '));
+      buffers.addAll(_extractWorksheetRows(xml, sharedStrings));
     }
 
     return _cleanText(
@@ -405,7 +389,7 @@ class ImageProcessingService {
     int rotation = 0,
     ScanFilter filter = ScanFilter.auto,
     ScanQualitySettings quality = const ScanQualitySettings(),
-    double imageQuality = 0.86,
+    double imageQuality = 0.96,
     int? maxSide,
   }) async {
     final bytes = _webBytes[inputPath];
@@ -664,7 +648,7 @@ class DocumentExportService implements BatchExportService {
             if (batch.exportSettings.includeTextLayer && text.isNotEmpty) {
               children
                 ..add(pw.SizedBox(height: 10))
-                ..add(pw.Text(text, maxLines: 16));
+                ..add(_pdfTextBlock(text));
             }
 
             return _pdfWatermarkedPage(children);
@@ -736,28 +720,36 @@ class DocumentExportService implements BatchExportService {
     ExportFormat format,
     String extension,
   ) async {
-    final rows = batch.pages
-        .asMap()
-        .entries
-        .map((entry) {
-          final page = entry.value;
-          final index = entry.key + 1;
-          final text = _escapeHtml(_pageText(page));
-          final meta = _escapeHtml(
-            '${documentKindLabel(page.kind)} | ${page.folder} | ${page.tags.join(', ')}',
-          );
+    final sections = <String>[];
+    for (final entry in batch.pages.asMap().entries) {
+      final page = entry.value;
+      final index = entry.key + 1;
+      final text = _escapeHtml(_pageText(page));
+      final media = await _officeMediaMarkup(page);
+      final meta = _escapeHtml(
+        '${documentKindLabel(page.kind)} | ${page.folder} | ${page.tags.join(', ')}',
+      );
 
-          if (format == ExportFormat.excel) {
-            return '<tr><td>$index</td><td>${_escapeHtml(page.title)}</td><td>${_escapeHtml(documentKindLabel(page.kind))}</td><td>${_escapeHtml(page.folder)}</td><td>${_escapeHtml(page.tags.join(', '))}</td><td>$text</td></tr>';
-          }
+      if (format == ExportFormat.excel) {
+        sections.add(
+          '<tr><td>$index</td><td>${_escapeHtml(page.title)}</td><td>${_escapeHtml(documentKindLabel(page.kind))}</td><td>${_escapeHtml(page.folder)}</td><td>${_escapeHtml(page.tags.join(', '))}</td><td>$media<div class="document-text">$text</div></td></tr>',
+        );
+        continue;
+      }
 
-          if (format == ExportFormat.powerPoint) {
-            return '<section class="slide"><h2>$index. ${_escapeHtml(page.title)}</h2><p>$meta</p><p>$text</p></section>';
-          }
+      if (format == ExportFormat.powerPoint) {
+        sections.add(
+          '<section class="slide"><h2>$index. ${_escapeHtml(page.title)}</h2><p>$meta</p>$media<div class="document-text">$text</div></section>',
+        );
+        continue;
+      }
 
-          return '<section class="page"><h2>$index. ${_escapeHtml(page.title)}</h2><p>$meta</p><div>$text</div></section>';
-        })
-        .join('\n');
+      sections.add(
+        '<section class="page"><h2>$index. ${_escapeHtml(page.title)}</h2><p>$meta</p>$media<div class="document-text">$text</div></section>',
+      );
+    }
+
+    final rows = sections.join('\n');
 
     final body = format == ExportFormat.excel
         ? '<table><thead><tr><th>#</th><th>Name</th><th>Type</th><th>Folder</th><th>Tags</th><th>Text</th></tr></thead><tbody>$rows</tbody></table>'
@@ -773,7 +765,10 @@ class DocumentExportService implements BatchExportService {
     body { font-family: Arial, sans-serif; color: #17231f; position: relative; }
     body::before { content: "SapScanner"; position: fixed; top: 45%; left: 50%; transform: translate(-50%, -50%) rotate(-24deg); font-size: 78px; font-weight: 800; color: rgba(16, 16, 16, 0.055); pointer-events: none; z-index: 0; }
     body > * { position: relative; z-index: 1; }
-    table { border-collapse: collapse; width: 100%; }
+    .document-text { white-space: pre-wrap; line-height: 1.5; overflow-wrap: break-word; }
+    .page-image { display: block; max-width: 100%; max-height: 620px; object-fit: contain; margin: 12px 0 16px; }
+    .slide .page-image { max-height: 360px; }
+    table { border-collapse: collapse; width: 100%; table-layout: fixed; }
     th, td { border: 1px solid #cad1ce; padding: 8px; vertical-align: top; }
     th { background: #101010; color: #fff; }
     .page { page-break-after: always; margin-bottom: 24px; position: relative; }
@@ -1052,7 +1047,7 @@ _ProcessedImage _processImageBytes(
   int rotation = 0,
   ScanFilter filter = ScanFilter.auto,
   ScanQualitySettings quality = const ScanQualitySettings(),
-  double imageQuality = 0.86,
+  double imageQuality = 0.96,
   int? maxSide,
 }) {
   final decoded = image_tools.decodeImage(bytes);
@@ -1180,6 +1175,92 @@ List<String> _extractSharedStrings(Archive archive) {
   ).allMatches(xml).map((match) => _decodeXml(match.group(1) ?? '')).toList();
 }
 
+List<String> _extractWorksheetRows(String xml, List<String> sharedStrings) {
+  final rows = <String>[];
+
+  for (final rowMatch in RegExp(
+    r'<row\b[^>]*>(.*?)</row>',
+    dotAll: true,
+  ).allMatches(xml)) {
+    final rowXml = rowMatch.group(1) ?? '';
+    final values = <String>[];
+
+    for (final cellMatch in RegExp(
+      r'<c\b([^>]*)>(.*?)</c>',
+      dotAll: true,
+    ).allMatches(rowXml)) {
+      final attributes = cellMatch.group(1) ?? '';
+      final cellXml = cellMatch.group(2) ?? '';
+      final cellRef = RegExp(
+        r'\br="([A-Z]+)\d+"',
+      ).firstMatch(attributes)?.group(1);
+      final columnIndex = _columnIndexFromCellRef(cellRef);
+      while (columnIndex != null && values.length < columnIndex) {
+        values.add('');
+      }
+      values.add(_spreadsheetCellValue(attributes, cellXml, sharedStrings));
+    }
+
+    final line = values.join('\t').replaceFirst(RegExp(r'\t+$'), '');
+    if (line.trim().isNotEmpty) {
+      rows.add(line);
+    }
+  }
+
+  return rows;
+}
+
+String _spreadsheetCellValue(
+  String attributes,
+  String cellXml,
+  List<String> sharedStrings,
+) {
+  if (attributes.contains('t="inlineStr"')) {
+    return _cleanText(_textFromXmlTextNodes(cellXml));
+  }
+
+  final raw = _firstTagContent(cellXml, 'v');
+  if (raw.isEmpty) {
+    return _cleanText(_textFromXmlTextNodes(cellXml));
+  }
+
+  if (attributes.contains('t="s"')) {
+    final index = int.tryParse(raw);
+    if (index != null && index < sharedStrings.length) {
+      return sharedStrings[index];
+    }
+  }
+
+  return _decodeXml(raw);
+}
+
+String _textFromXmlTextNodes(String xml) {
+  return RegExp(
+    r'<t[^>]*>(.*?)</t>',
+    dotAll: true,
+  ).allMatches(xml).map((match) => _decodeXml(match.group(1) ?? '')).join('');
+}
+
+String _firstTagContent(String xml, String tag) {
+  return RegExp(
+        '<$tag[^>]*>(.*?)</$tag>',
+        dotAll: true,
+      ).firstMatch(xml)?.group(1)?.trim() ??
+      '';
+}
+
+int? _columnIndexFromCellRef(String? letters) {
+  if (letters == null || letters.isEmpty) {
+    return null;
+  }
+
+  var index = 0;
+  for (final codeUnit in letters.codeUnits) {
+    index = index * 26 + codeUnit - 64;
+  }
+  return index - 1;
+}
+
 PdfPageFormat _pdfPageFormat(PageSize pageSize) {
   return switch (pageSize) {
     PageSize.a4 => PdfPageFormat.a4,
@@ -1194,6 +1275,10 @@ String _pageText(ScanPage page) {
     page.textPreview,
     page.notes,
   ].where((value) => value.trim().isNotEmpty).join('\n\n').trim();
+}
+
+pw.Widget _pdfTextBlock(String text) {
+  return pw.Text(text, style: const pw.TextStyle(fontSize: 10.5));
 }
 
 pw.Widget _pdfWatermarkedPage(List<pw.Widget> children) {
@@ -1240,7 +1325,7 @@ Uint8List _preparePdfImageBytes(Uint8List source, ExportSettings settings) {
       ? 1400
       : settings.imageQuality <= 0.75
       ? 2200
-      : 3200;
+      : 4096;
   if (math.max(prepared.width, prepared.height) > maxSide) {
     final scale = maxSide / math.max(prepared.width, prepared.height);
     prepared = image_tools.copyResize(
@@ -1296,6 +1381,29 @@ String _extension(String path) {
 bool _isImagePath(String path) =>
     FileIntakeService.imageExtensions.contains(_extension(path));
 
+Future<String> _officeMediaMarkup(ScanPage page) async {
+  final path = page.bestPath;
+  final bytes = path == null ? null : _webBytes[path];
+  final name = path == null ? page.fileName : _webNames[path] ?? page.fileName;
+  if (bytes == null || !_isImagePath(name)) {
+    return '';
+  }
+
+  final mimeType = _imageMimeType(name);
+  final data = base64Encode(bytes);
+  return '<img class="page-image" src="data:$mimeType;base64,$data" alt="${_escapeHtml(page.title)}">';
+}
+
+String _imageMimeType(String path) {
+  return switch (_extension(path)) {
+    'png' => 'image/png',
+    'webp' => 'image/webp',
+    'gif' => 'image/gif',
+    'bmp' => 'image/bmp',
+    _ => 'image/jpeg',
+  };
+}
+
 String _cleanText(String value) {
   return value
       .replaceAll('\r', '')
@@ -1306,9 +1414,13 @@ String _cleanText(String value) {
 
 String _cleanOfficeXml(String xml) {
   final text = xml
-      .replaceAll(RegExp(r'<a:br\s*/>'), '\n')
+      .replaceAll(RegExp(r'<w:tab\s*/>'), '\t')
+      .replaceAll(RegExp(r'<w:br\s*/>|<w:cr\s*/>|<a:br\s*/>'), '\n')
+      .replaceAll(RegExp(r'</w:p>\s*</w:tc>'), '</w:tc>')
+      .replaceAll(RegExp(r'</w:tc>'), '\t')
+      .replaceAll(RegExp(r'</w:tr>'), '\n')
       .replaceAll(RegExp(r'</w:p>|</a:p>'), '\n')
-      .replaceAll(RegExp(r'<[^>]+>'), ' ');
+      .replaceAll(RegExp(r'<[^>]+>'), '');
   return _cleanText(_decodeXml(text));
 }
 
@@ -1338,7 +1450,9 @@ String _escapeHtml(String value) {
   return value
       .replaceAll('&', '&amp;')
       .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;');
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
 }
 
 String _compressionOutputName({

@@ -246,8 +246,7 @@ class ScanWorkspace extends StatelessWidget {
                 const SectionTitle(
                   icon: Icons.document_scanner_outlined,
                   title: 'Scan workspace',
-                  subtitle:
-                      'Camera, OCR, imported files, filters, and local exports.',
+                  subtitle: 'Capture, refine, and export documents locally.',
                 ),
                 const SizedBox(height: 16),
                 activePage == null
@@ -1100,7 +1099,7 @@ class ConvertWorkspace extends StatelessWidget {
         const SectionTitle(
           icon: Icons.swap_horiz,
           title: 'Convert',
-          subtitle: 'Choose a format, upload a file, and download the result.',
+          subtitle: 'Review each file before creating the final document.',
         ),
         const SizedBox(height: 12),
         _ActiveDocumentCard(controller: controller),
@@ -1266,7 +1265,7 @@ class _ActiveDocumentCard extends StatelessWidget {
               SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'No document open. Open a PDF, Word, Excel, PowerPoint, image, or text file.',
+                  'Open a PDF, Word, Excel, PowerPoint, image, or text file when you are ready.',
                 ),
               ),
             ],
@@ -1604,8 +1603,7 @@ class CompressWorkspace extends StatelessWidget {
         const SectionTitle(
           icon: Icons.compress,
           title: 'Compression studio',
-          subtitle:
-              'Photo recompression, video-safe archives, folders, PDFs, and all files with local savings reports.',
+          subtitle: 'Reduce file size while keeping files clean and shareable.',
         ),
         const SizedBox(height: 12),
         Wrap(
@@ -1690,6 +1688,8 @@ class SettingsWorkspace extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
+        _NotificationSettingsCard(controller: controller),
+        const SizedBox(height: 12),
         MetricStrip(controller: controller),
         const SizedBox(height: 12),
         FeatureGrid(
@@ -1709,12 +1709,73 @@ class SettingsWorkspace extends StatelessWidget {
               controller.t('officeExportsDetail'),
             ),
             FeatureItem(
-              'Native install',
-              'Android app package after toolchain setup',
+              'Install-ready',
+              'Prepared for mobile packaging and web deployment',
             ),
           ],
         ),
       ],
+    );
+  }
+}
+
+class _NotificationSettingsCard extends StatelessWidget {
+  const _NotificationSettingsCard({required this.controller});
+
+  final ScannerController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final state = controller.notificationState;
+    final status = state == null
+        ? 'Not enabled yet'
+        : state.granted
+        ? 'Enabled'
+        : state.message;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.notifications_active_outlined),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Notifications',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                Chip(label: Text(status)),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                FilledButton.icon(
+                  onPressed: controller.isBusy
+                      ? null
+                      : controller.enableNotifications,
+                  icon: const Icon(Icons.notifications_outlined),
+                  label: const Text('Enable'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: controller.isBusy
+                      ? null
+                      : controller.sendTestNotification,
+                  icon: const Icon(Icons.send_outlined),
+                  label: const Text('Send test'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -2043,7 +2104,7 @@ String _previewText(ScanPage page) {
   ].where((value) => value.trim().isNotEmpty).join('\n\n');
   return text.isEmpty
       ? page.fileName.isEmpty
-            ? 'Ready for OCR and export.'
+            ? 'Preview will appear when text is available.'
             : page.fileName
       : text;
 }

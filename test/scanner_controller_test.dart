@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sapscanner/src/controllers/scanner_controller.dart';
 import 'package:sapscanner/src/models/scan_models.dart';
+import 'package:sapscanner/src/services/notification_service.dart';
 import 'package:sapscanner/src/services/scanner_services.dart';
 import 'package:sapscanner/src/services/storage_service.dart';
 
@@ -153,6 +154,28 @@ void main() {
     );
     expect(controller.notice, contains('converted to PowerPoint'));
   });
+
+  test('requests and tests notifications through the controller', () async {
+    final temp = await Directory.systemTemp.createTemp(
+      'sapscanner-controller-',
+    );
+    final controller = ScannerController(
+      scannerService: _FakeScanService(),
+      exportService: _FakeExportService(temp),
+      compressionService: _FakeCompressionService(temp),
+      notificationService: const _FakeNotificationService(),
+    );
+
+    await controller.enableNotifications();
+
+    expect(controller.notificationState?.granted, isTrue);
+    expect(controller.notice, 'Notifications are enabled');
+
+    await controller.sendTestNotification();
+
+    expect(controller.notificationState?.granted, isTrue);
+    expect(controller.notice, 'Test notification sent');
+  });
 }
 
 class _FakeScanService implements ScanCaptureService {
@@ -267,5 +290,27 @@ class _FakeCompressionService implements CompressionService {
     required CompressionPreset preset,
   }) {
     return compressPaths(const [], preset: preset);
+  }
+}
+
+class _FakeNotificationService extends AppNotificationService {
+  const _FakeNotificationService();
+
+  @override
+  Future<NotificationPermissionState> requestPermission() async {
+    return const NotificationPermissionState(
+      supported: true,
+      granted: true,
+      message: 'Notifications are enabled',
+    );
+  }
+
+  @override
+  Future<NotificationPermissionState> showTestNotification() async {
+    return const NotificationPermissionState(
+      supported: true,
+      granted: true,
+      message: 'Test notification sent',
+    );
   }
 }

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/scan_models.dart';
 import '../services/i18n_service.dart';
+import '../services/notification_service.dart';
 import '../services/scanner_services.dart';
 import '../services/storage_service.dart';
 
@@ -12,13 +13,17 @@ class ScannerController extends ChangeNotifier {
     required this.compressionService,
     this.storageService,
     this.i18nService = const I18nService(),
-  }) : batch = ScanBatch.empty();
+    AppNotificationService? notificationService,
+  }) : notificationService =
+           notificationService ?? const AppNotificationService(),
+       batch = ScanBatch.empty();
 
   final ScanCaptureService scannerService;
   final BatchExportService exportService;
   final CompressionService compressionService;
   final StorageService? storageService;
   final I18nService i18nService;
+  final AppNotificationService notificationService;
 
   ScanBatch batch;
   bool isBusy = false;
@@ -28,6 +33,7 @@ class ScannerController extends ChangeNotifier {
   String activeFolder = 'All';
   ExportResult? lastExport;
   CompressionResult? lastCompression;
+  NotificationPermissionState? notificationState;
 
   AppLanguage get language => batch.preferences.language;
 
@@ -267,6 +273,20 @@ class ScannerController extends ChangeNotifier {
       lastCompression = await compressionService.compressFolder(preset: preset);
       notice = _compressionNotice(lastCompression!);
     });
+  }
+
+  Future<void> enableNotifications() async {
+    await _run(() async {
+      notificationState = await notificationService.requestPermission();
+      notice = notificationState!.message;
+    }, saveAfter: false);
+  }
+
+  Future<void> sendTestNotification() async {
+    await _run(() async {
+      notificationState = await notificationService.showTestNotification();
+      notice = notificationState!.message;
+    }, saveAfter: false);
   }
 
   void selectPage(int index) {
