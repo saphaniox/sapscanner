@@ -597,9 +597,13 @@ class ImageProcessingService {
 class NativeScannerService implements ScanCaptureService {
   NativeScannerService({
     FileIntakeService fileIntakeService = const FileIntakeService(),
-  }) : _fileIntakeService = fileIntakeService;
+    ImageProcessingService imageProcessingService =
+        const ImageProcessingService(),
+  }) : _fileIntakeService = fileIntakeService,
+       _imageProcessingService = imageProcessingService;
 
   final FileIntakeService _fileIntakeService;
+  final ImageProcessingService _imageProcessingService;
 
   @override
   Future<ScanCaptureResult> scanDocument() async {
@@ -667,10 +671,45 @@ class NativeScannerService implements ScanCaptureService {
         runOcr: true,
         source: ScanSource.camera,
       );
-      pages.add(page.copyWith(tags: const ['camera', 'fullscreen', 'ocr']));
+      pages.add(await _cleanCameraPage(page));
     }
 
     return ScanCaptureResult(pages: pages);
+  }
+
+  Future<ScanPage> _cleanCameraPage(ScanPage page) async {
+    final path = page.localPath;
+    if (path == null || page.kind != DocumentKind.image) {
+      return page.copyWith(tags: const ['camera', 'scan']);
+    }
+
+    try {
+      final crop = await _imageProcessingService.detectDocumentBounds(path);
+      final sourceFile = File(path);
+      final outputDirectory = await sourceFile.parent.exists()
+          ? sourceFile.parent
+          : null;
+      final processed = await _imageProcessingService.processImageFile(
+        path,
+        outputDirectory: outputDirectory,
+        crop: crop,
+        filter: ScanFilter.auto,
+        quality: const ScanQualitySettings(brightness: 3, contrast: 1.12),
+        imageQuality: 0.96,
+      );
+      final processedText = await recognizeText(processed.outputPath);
+      return page.copyWith(
+        processedPath: processed.outputPath,
+        ocrText: processedText.trim().isEmpty ? page.ocrText : processedText,
+        tags: const ['camera', 'scan', 'clean', 'ocr'],
+        quality: ScanQuality.premium,
+        sizeBytes: processed.sizeBytes,
+        width: processed.width,
+        height: processed.height,
+      );
+    } catch (_) {
+      return page.copyWith(tags: const ['camera', 'scan', 'ocr']);
+    }
   }
 
   @override
@@ -813,6 +852,7 @@ class DocumentExportService implements BatchExportService {
           ? _preparePdfImageBytes(
               await file.readAsBytes(),
               batch.exportSettings,
+              page,
             )
           : null;
       final text = _pageText(page);
@@ -922,7 +962,11 @@ class DocumentExportService implements BatchExportService {
 
     final output = await _writeOutputFile(
       '${_safeName(page.title)}.jpg',
-      _prepareJpegImageBytes(await file.readAsBytes(), batch.exportSettings),
+      _prepareJpegImageBytes(
+        await file.readAsBytes(),
+        batch.exportSettings,
+        page,
+      ),
       directory: outputDirectory,
     );
     return _result(output, ExportFormat.jpg);
@@ -938,7 +982,7 @@ class DocumentExportService implements BatchExportService {
     for (final entry in batch.pages.asMap().entries) {
       final page = entry.value;
       final index = entry.key + 1;
-      final text = _escapeHtml(_pageText(page));
+      final text = _officeTextMarkup(_pageText(page));
       final media = await _officeMediaMarkup(page);
       final meta = _escapeHtml(
         '${documentKindLabel(page.kind)} | ${page.folder} | ${page.tags.join(', ')}',
@@ -980,6 +1024,8 @@ class DocumentExportService implements BatchExportService {
     body::before { content: "SapScanner"; position: fixed; top: 45%; left: 50%; transform: translate(-50%, -50%) rotate(-24deg); font-size: 78px; font-weight: 800; color: rgba(16, 16, 16, 0.055); pointer-events: none; z-index: 0; }
     body > * { position: relative; z-index: 1; }
     .document-text { white-space: pre-wrap; line-height: 1.5; overflow-wrap: break-word; }
+    .content-table { border-collapse: collapse; width: 100%; margin: 10px 0 16px; table-layout: fixed; }
+    .content-table td { border: 1px solid #cad1ce; padding: 7px; vertical-align: top; white-space: pre-wrap; overflow-wrap: break-word; }
     .page-image { display: block; max-width: 100%; max-height: 620px; object-fit: contain; margin: 12px 0 16px; }
     .slide .page-image { max-height: 360px; }
     table { border-collapse: collapse; width: 100%; table-layout: fixed; }
@@ -1247,6 +1293,16 @@ class NativeCompressionService implements CompressionService {
   }
 }
 
+Future<Uint8List?> loadScanPageImageBytes(ScanPage page) async {
+  final path = page.bestPath;
+  final file = path == null ? null : File(path);
+  if (file == null || !await file.exists() || !_isImagePath(file.path)) {
+    return null;
+  }
+
+  return _previewImageBytes(await file.readAsBytes(), page);
+}
+
 class _CompressionEntry {
   const _CompressionEntry(this.file, this.archiveName);
 
@@ -1263,7 +1319,11 @@ Future<String> recognizeText(String path) async {
   } catch (_) {
     return '';
   } finally {
-    await recognizer.close();
+    try {
+      await recognizer.close();
+    } catch (_) {
+      // OCR is optional; cleanup failures must not block saving a scan.
+    }
   }
 }
 
@@ -1353,14 +1413,20 @@ pw.Widget _pdfWatermarkedPage(List<pw.Widget> children) {
   );
 }
 
-Uint8List _preparePdfImageBytes(List<int> source, ExportSettings settings) {
+Uint8List _preparePdfImageBytes(
+  List<int> source,
+  ExportSettings settings,
+  ScanPage page,
+) {
   final original = Uint8List.fromList(source);
   final decoded = image_tools.decodeImage(original);
   if (decoded == null) {
     return original;
   }
 
-  var prepared = decoded;
+  var prepared = _hasPageImageEdits(page)
+      ? _applyPageImageEdits(decoded, page)
+      : decoded;
   final maxSide = settings.imageQuality <= 0.55
       ? 1400
       : settings.imageQuality <= 0.75
@@ -1378,23 +1444,137 @@ Uint8List _preparePdfImageBytes(List<int> source, ExportSettings settings) {
   final encoded = Uint8List.fromList(
     image_tools.encodeJpg(prepared, quality: settings.jpegQuality),
   );
-  if (settings.imageQuality >= 0.85 && encoded.length > original.length) {
+  if (!_hasPageImageEdits(page) &&
+      settings.imageQuality >= 0.85 &&
+      encoded.length > original.length) {
     return original;
   }
 
   return encoded;
 }
 
-Uint8List _prepareJpegImageBytes(List<int> source, ExportSettings settings) {
+Uint8List _prepareJpegImageBytes(
+  List<int> source,
+  ExportSettings settings,
+  ScanPage page,
+) {
   final original = Uint8List.fromList(source);
   final decoded = image_tools.decodeImage(original);
   if (decoded == null) {
     return original;
   }
 
+  final prepared = _hasPageImageEdits(page)
+      ? _applyPageImageEdits(decoded, page)
+      : decoded;
+
   return Uint8List.fromList(
-    image_tools.encodeJpg(decoded, quality: settings.jpegQuality),
+    image_tools.encodeJpg(prepared, quality: settings.jpegQuality),
   );
+}
+
+Uint8List _previewImageBytes(Uint8List source, ScanPage page) {
+  if (!_hasPageImageEdits(page)) {
+    return source;
+  }
+
+  final decoded = image_tools.decodeImage(source);
+  if (decoded == null) {
+    return source;
+  }
+
+  var prepared = _applyPageImageEdits(decoded, page);
+  const maxSide = 1800;
+  if (math.max(prepared.width, prepared.height) > maxSide) {
+    final scale = maxSide / math.max(prepared.width, prepared.height);
+    prepared = image_tools.copyResize(
+      prepared,
+      width: math.max(1, (prepared.width * scale).round()),
+      height: math.max(1, (prepared.height * scale).round()),
+    );
+  }
+
+  return Uint8List.fromList(image_tools.encodeJpg(prepared, quality: 92));
+}
+
+bool _hasPageImageEdits(ScanPage page) {
+  return page.crop != null ||
+      page.perspective.isNotEmpty ||
+      page.rotation % 360 != 0 ||
+      page.filter != ScanFilter.auto ||
+      page.qualitySettings.brightness != 0 ||
+      page.qualitySettings.contrast != 1 ||
+      page.qualitySettings.sharpness != 0.15;
+}
+
+image_tools.Image _applyPageImageEdits(
+  image_tools.Image source,
+  ScanPage page,
+) {
+  var edited = _applyCropOrPerspective(source, page.crop, page.perspective);
+  if (page.rotation % 360 != 0) {
+    edited = image_tools.copyRotate(edited, angle: page.rotation);
+  }
+  return _applyFilter(edited, page.filter, page.qualitySettings);
+}
+
+image_tools.Image _applyCropOrPerspective(
+  image_tools.Image source,
+  CropRect? crop,
+  List<PerspectivePoint> perspective,
+) {
+  if (perspective.length == 4) {
+    final minX = perspective.map((point) => point.x).reduce(math.min).round();
+    final minY = perspective.map((point) => point.y).reduce(math.min).round();
+    final maxX = perspective.map((point) => point.x).reduce(math.max).round();
+    final maxY = perspective.map((point) => point.y).reduce(math.max).round();
+    return image_tools.copyCrop(
+      source,
+      x: minX,
+      y: minY,
+      width: math.max(1, maxX - minX),
+      height: math.max(1, maxY - minY),
+    );
+  }
+
+  if (crop == null) {
+    return image_tools.Image.from(source);
+  }
+
+  return image_tools.copyCrop(
+    source,
+    x: crop.x,
+    y: crop.y,
+    width: crop.width,
+    height: crop.height,
+  );
+}
+
+image_tools.Image _applyFilter(
+  image_tools.Image source,
+  ScanFilter filter,
+  ScanQualitySettings quality,
+) {
+  var edited = image_tools.adjustColor(
+    source,
+    brightness: (1 + quality.brightness / 100).clamp(0.2, 2.0),
+    contrast: quality.contrast.clamp(0.2, 2.0),
+    saturation:
+        filter == ScanFilter.grayscale || filter == ScanFilter.blackAndWhite
+        ? 0
+        : 1.08,
+  );
+
+  if (filter == ScanFilter.grayscale) {
+    edited = image_tools.grayscale(edited);
+  }
+
+  if (filter == ScanFilter.blackAndWhite) {
+    edited = image_tools.grayscale(edited);
+    edited = image_tools.adjustColor(edited, contrast: 1.75, brightness: 1.08);
+  }
+
+  return edited;
 }
 
 String _safeName(String value) {
@@ -1468,8 +1648,10 @@ Future<String> _officeMediaMarkup(ScanPage page) async {
     return '';
   }
 
-  final mimeType = _imageMimeType(file.path);
-  final data = base64Encode(await file.readAsBytes());
+  final bytes = await file.readAsBytes();
+  final edited = _hasPageImageEdits(page);
+  final mimeType = edited ? 'image/jpeg' : _imageMimeType(file.path);
+  final data = base64Encode(edited ? _previewImageBytes(bytes, page) : bytes);
   return '<img class="page-image" src="data:$mimeType;base64,$data" alt="${_escapeHtml(page.title)}">';
 }
 
@@ -1530,6 +1712,60 @@ String _decodePdfString(String value) {
       .replaceAll(r'\t', ' ')
       .replaceAll(r'\b', '')
       .replaceAll(r'\f', '\n');
+}
+
+String _officeTextMarkup(String text) {
+  final table = _tabularTextMarkup(text);
+  if (table != null) {
+    return table;
+  }
+
+  return '<div class="document-text">${_escapeHtml(text)}</div>';
+}
+
+String? _tabularTextMarkup(String text) {
+  final lines = text
+      .split('\n')
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList(growable: false);
+  if (lines.length < 2) {
+    return null;
+  }
+
+  final separator = _tableSeparator(lines);
+  if (separator == null) {
+    return null;
+  }
+
+  final rows = lines.map((line) => line.split(separator)).toList();
+  final columnCount = rows.map((row) => row.length).reduce(math.max);
+  if (columnCount < 2) {
+    return null;
+  }
+
+  final markup = rows.map((row) {
+    final cells = [
+      for (var index = 0; index < columnCount; index++)
+        '<td>${_escapeHtml(index < row.length ? row[index].trim() : '')}</td>',
+    ].join();
+    return '<tr>$cells</tr>';
+  }).join();
+  return '<table class="content-table"><tbody>$markup</tbody></table>';
+}
+
+String? _tableSeparator(List<String> lines) {
+  final tabRows = lines.where((line) => line.contains('\t')).length;
+  if (tabRows >= 2) {
+    return '\t';
+  }
+
+  final commaRows = lines.where((line) => line.split(',').length > 1).length;
+  if (commaRows >= 2) {
+    return ',';
+  }
+
+  return null;
 }
 
 String _escapeHtml(String value) {

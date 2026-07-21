@@ -1,4 +1,5 @@
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../controllers/scanner_controller.dart';
@@ -369,7 +370,7 @@ class _FullScreenScannerViewState extends State<FullScreenScannerView> {
     final previous = camera;
     final nextCamera = CameraController(
       cameras[index],
-      ResolutionPreset.max,
+      kIsWeb ? ResolutionPreset.high : ResolutionPreset.max,
       enableAudio: false,
       imageFormatGroup: ImageFormatGroup.jpeg,
     );
@@ -380,7 +381,7 @@ class _FullScreenScannerViewState extends State<FullScreenScannerView> {
     });
 
     await previous?.dispose();
-    await nextCamera.initialize();
+    await nextCamera.initialize().timeout(const Duration(seconds: 14));
 
     if (!mounted) {
       await nextCamera.dispose();
@@ -391,6 +392,12 @@ class _FullScreenScannerViewState extends State<FullScreenScannerView> {
       await nextCamera.setFlashMode(FlashMode.off);
     } catch (_) {
       // Some web and front-facing cameras do not expose flash controls.
+    }
+    try {
+      await nextCamera.setFocusMode(FocusMode.auto);
+      await nextCamera.setExposureMode(ExposureMode.auto);
+    } catch (_) {
+      // Browser camera streams often skip focus and exposure controls.
     }
 
     setState(() {
@@ -420,8 +427,13 @@ class _FullScreenScannerViewState extends State<FullScreenScannerView> {
     setState(() => isCapturing = true);
 
     try {
-      final photo = await activeCamera.takePicture();
-      final bytes = await photo.readAsBytes();
+      final beforeCount = widget.controller.batch.pages.length;
+      final photo = await activeCamera.takePicture().timeout(
+        const Duration(seconds: 15),
+      );
+      final bytes = await photo.readAsBytes().timeout(
+        const Duration(seconds: 10),
+      );
       final fileName =
           'Scan-${DateTime.now().millisecondsSinceEpoch.toString()}.jpg';
 
@@ -434,9 +446,19 @@ class _FullScreenScannerViewState extends State<FullScreenScannerView> {
         ),
       ]);
 
-      if (mounted) {
-        Navigator.of(context).pop();
+      if (!mounted) {
+        return;
       }
+
+      if (widget.controller.batch.pages.length > beforeCount) {
+        Navigator.of(context).pop();
+        return;
+      }
+
+      setState(() {
+        isCapturing = false;
+        errorMessage = 'The photo could not be saved. Try upload instead.';
+      });
     } catch (error) {
       if (!mounted) {
         return;
@@ -446,6 +468,25 @@ class _FullScreenScannerViewState extends State<FullScreenScannerView> {
         errorMessage = 'Capture failed. $error';
       });
     }
+  }
+
+  Future<void> _useCameraUpload() async {
+    final beforeCount = widget.controller.batch.pages.length;
+    await widget.controller.startNativeScan();
+    if (!mounted) {
+      return;
+    }
+
+    if (widget.controller.batch.pages.length > beforeCount) {
+      Navigator.of(context).pop();
+      return;
+    }
+
+    setState(() {
+      errorMessage = widget.controller.notice.isEmpty
+          ? 'No image was selected.'
+          : widget.controller.notice;
+    });
   }
 
   Future<void> _toggleFlash() async {
@@ -547,7 +588,20 @@ class _FullScreenScannerViewState extends State<FullScreenScannerView> {
                   ),
                   child: Padding(
                     padding: const EdgeInsets.all(12),
-                    child: Text(errorMessage!, textAlign: TextAlign.center),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(errorMessage!, textAlign: TextAlign.center),
+                        const SizedBox(height: 10),
+                        OutlinedButton.icon(
+                          onPressed: widget.controller.isBusy
+                              ? null
+                              : _useCameraUpload,
+                          icon: const Icon(Icons.upload_file_outlined),
+                          label: const Text('Upload image'),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -743,20 +797,63 @@ class ActivePagePreview extends StatelessWidget {
                     style: Theme.of(context).textTheme.labelLarge,
                   ),
                   const SizedBox(height: 8),
-                  Expanded(
-                    child: Text(
-                      _previewText(page),
-                      maxLines: 8,
-                      overflow: TextOverflow.fade,
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ),
+                  Expanded(child: PageVisualPreview(page: page)),
                 ],
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class PageVisualPreview extends StatelessWidget {
+  const PageVisualPreview({super.key, required this.page, this.minHeight});
+
+  final ScanPage page;
+  final double? minHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List?>(
+      future: loadScanPageImageBytes(page),
+      builder: (context, snapshot) {
+        final bytes = snapshot.data;
+        if (bytes != null && bytes.isNotEmpty) {
+          return ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              constraints: BoxConstraints(minHeight: minHeight ?? 0),
+              color: const Color(0xFFF8FAF9),
+              alignment: Alignment.center,
+              child: Image.memory(
+                bytes,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
+                gaplessPlayback: true,
+              ),
+            ),
+          );
+        }
+
+        return Container(
+          width: double.infinity,
+          constraints: BoxConstraints(minHeight: minHeight ?? 0),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF8FAF9),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFDDE5E1)),
+          ),
+          child: Text(
+            _previewText(page),
+            maxLines: minHeight == null ? 8 : null,
+            overflow: minHeight == null ? TextOverflow.fade : null,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        );
+      },
     );
   }
 }
@@ -1541,6 +1638,8 @@ class DocumentViewerScreen extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(height: 12),
+          PageVisualPreview(page: page, minHeight: 280),
           const SizedBox(height: 12),
           Card(
             child: Padding(

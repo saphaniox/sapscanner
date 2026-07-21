@@ -249,9 +249,30 @@ class FileIntakeService {
     final path = 'web://camera/$id/${capture.fileName}';
     final kind = classifyPath(capture.fileName, mimeType: capture.mimeType);
     final size = _imageSizeFromBytes(bytes);
+    String? processedPath;
+    var processedSize = size;
+    var processedBytesLength = bytes.length;
 
     _webBytes[path] = bytes;
     _webNames[path] = capture.fileName;
+
+    try {
+      final processed = _processImageBytes(
+        bytes,
+        fileName: capture.fileName,
+        crop: _documentBoundsFromBytes(bytes),
+        filter: ScanFilter.auto,
+        quality: const ScanQualitySettings(brightness: 3, contrast: 1.12),
+        imageQuality: 0.96,
+      );
+      processedPath = 'web://camera/$id/clean-${processed.fileName}';
+      _webBytes[processedPath] = processed.bytes;
+      _webNames[processedPath] = processed.fileName;
+      processedSize = (width: processed.width, height: processed.height);
+      processedBytesLength = processed.bytes.length;
+    } catch (_) {
+      processedPath = null;
+    }
 
     return ScanPage(
       id: id,
@@ -260,15 +281,19 @@ class FileIntakeService {
       source: ScanSource.camera,
       kind: kind,
       localPath: path,
+      processedPath: processedPath,
       fileName: capture.fileName,
       mimeType: capture.mimeType,
       folder: folder,
       textPreview: '',
       ocrText: '',
-      tags: const ['camera', 'capture'],
-      sizeBytes: bytes.length,
-      width: size.width,
-      height: size.height,
+      tags: const ['camera', 'scan', 'clean'],
+      quality: processedPath == null
+          ? ScanQuality.standard
+          : ScanQuality.premium,
+      sizeBytes: processedBytesLength,
+      width: processedSize.width,
+      height: processedSize.height,
     );
   }
 
@@ -607,7 +632,7 @@ class DocumentExportService implements BatchExportService {
       final hasImage =
           bytes != null && _isImagePath(_webNames[path] ?? page.fileName);
       final imageBytes = hasImage
-          ? _preparePdfImageBytes(bytes, batch.exportSettings)
+          ? _preparePdfImageBytes(bytes, batch.exportSettings, page)
           : null;
       final text = _pageText(page);
 
@@ -705,7 +730,7 @@ class DocumentExportService implements BatchExportService {
       return _exportZip(batch, 'images', ExportFormat.jpg);
     }
 
-    final jpgBytes = _prepareJpegImageBytes(bytes, batch.exportSettings);
+    final jpgBytes = _prepareJpegImageBytes(bytes, batch.exportSettings, page);
     final fileName = '${_safeName(page.title)}.jpg';
     final outputPath = _downloadBytes(fileName, jpgBytes, 'image/jpeg');
     return ExportResult(
@@ -724,7 +749,7 @@ class DocumentExportService implements BatchExportService {
     for (final entry in batch.pages.asMap().entries) {
       final page = entry.value;
       final index = entry.key + 1;
-      final text = _escapeHtml(_pageText(page));
+      final text = _officeTextMarkup(_pageText(page));
       final media = await _officeMediaMarkup(page);
       final meta = _escapeHtml(
         '${documentKindLabel(page.kind)} | ${page.folder} | ${page.tags.join(', ')}',
@@ -766,6 +791,8 @@ class DocumentExportService implements BatchExportService {
     body::before { content: "SapScanner"; position: fixed; top: 45%; left: 50%; transform: translate(-50%, -50%) rotate(-24deg); font-size: 78px; font-weight: 800; color: rgba(16, 16, 16, 0.055); pointer-events: none; z-index: 0; }
     body > * { position: relative; z-index: 1; }
     .document-text { white-space: pre-wrap; line-height: 1.5; overflow-wrap: break-word; }
+    .content-table { border-collapse: collapse; width: 100%; margin: 10px 0 16px; table-layout: fixed; }
+    .content-table td { border: 1px solid #cad1ce; padding: 7px; vertical-align: top; white-space: pre-wrap; overflow-wrap: break-word; }
     .page-image { display: block; max-width: 100%; max-height: 620px; object-fit: contain; margin: 12px 0 16px; }
     .slide .page-image { max-height: 360px; }
     table { border-collapse: collapse; width: 100%; table-layout: fixed; }
@@ -1015,6 +1042,21 @@ class NativeCompressionService implements CompressionService {
   }
 }
 
+Future<Uint8List?> loadScanPageImageBytes(ScanPage page) async {
+  final path = page.bestPath;
+  if (path == null) {
+    return null;
+  }
+
+  final bytes = _webBytes[path];
+  final name = _webNames[path] ?? page.fileName;
+  if (bytes == null || !_isImagePath(name)) {
+    return null;
+  }
+
+  return _previewImageBytes(bytes, page);
+}
+
 class _WebCompressionEntry {
   const _WebCompressionEntry(this.file, this.bytes);
 
@@ -1152,6 +1194,22 @@ image_tools.Image _applyFilter(
   } catch (_) {
     return (width: 0, height: 0);
   }
+}
+
+CropRect? _documentBoundsFromBytes(Uint8List bytes) {
+  final decoded = image_tools.decodeImage(bytes);
+  if (decoded == null || decoded.width < 80 || decoded.height < 80) {
+    return null;
+  }
+
+  final padX = (decoded.width * 0.04).round();
+  final padY = (decoded.height * 0.04).round();
+  return CropRect(
+    x: padX,
+    y: padY,
+    width: math.max(1, decoded.width - padX * 2),
+    height: math.max(1, decoded.height - padY * 2),
+  );
 }
 
 Archive _openZip(Uint8List bytes) {
@@ -1314,13 +1372,19 @@ pw.Widget _pdfWatermarkedPage(List<pw.Widget> children) {
   );
 }
 
-Uint8List _preparePdfImageBytes(Uint8List source, ExportSettings settings) {
+Uint8List _preparePdfImageBytes(
+  Uint8List source,
+  ExportSettings settings,
+  ScanPage page,
+) {
   final decoded = image_tools.decodeImage(source);
   if (decoded == null) {
     return source;
   }
 
-  var prepared = decoded;
+  var prepared = _hasPageImageEdits(page)
+      ? _applyPageImageEdits(decoded, page)
+      : decoded;
   final maxSide = settings.imageQuality <= 0.55
       ? 1400
       : settings.imageQuality <= 0.75
@@ -1338,22 +1402,53 @@ Uint8List _preparePdfImageBytes(Uint8List source, ExportSettings settings) {
   final encoded = Uint8List.fromList(
     image_tools.encodeJpg(prepared, quality: settings.jpegQuality),
   );
-  if (settings.imageQuality >= 0.85 && encoded.length > source.length) {
+  if (!_hasPageImageEdits(page) &&
+      settings.imageQuality >= 0.85 &&
+      encoded.length > source.length) {
     return source;
   }
 
   return encoded;
 }
 
-Uint8List _prepareJpegImageBytes(Uint8List source, ExportSettings settings) {
+Uint8List _prepareJpegImageBytes(
+  Uint8List source,
+  ExportSettings settings,
+  ScanPage page,
+) {
   final decoded = image_tools.decodeImage(source);
   if (decoded == null) {
     return source;
   }
 
+  final prepared = _hasPageImageEdits(page)
+      ? _applyPageImageEdits(decoded, page)
+      : decoded;
+
   return Uint8List.fromList(
-    image_tools.encodeJpg(decoded, quality: settings.jpegQuality),
+    image_tools.encodeJpg(prepared, quality: settings.jpegQuality),
   );
+}
+
+bool _hasPageImageEdits(ScanPage page) {
+  return page.crop != null ||
+      page.perspective.isNotEmpty ||
+      page.rotation % 360 != 0 ||
+      page.filter != ScanFilter.auto ||
+      page.qualitySettings.brightness != 0 ||
+      page.qualitySettings.contrast != 1 ||
+      page.qualitySettings.sharpness != 0.15;
+}
+
+image_tools.Image _applyPageImageEdits(
+  image_tools.Image source,
+  ScanPage page,
+) {
+  var edited = _applyCropOrPerspective(source, page.crop, page.perspective);
+  if (page.rotation % 360 != 0) {
+    edited = image_tools.copyRotate(edited, angle: page.rotation);
+  }
+  return _applyFilter(edited, page.filter, page.qualitySettings);
 }
 
 String _safeName(String value) {
@@ -1381,6 +1476,30 @@ String _extension(String path) {
 bool _isImagePath(String path) =>
     FileIntakeService.imageExtensions.contains(_extension(path));
 
+Uint8List _previewImageBytes(Uint8List source, ScanPage page) {
+  if (!_hasPageImageEdits(page)) {
+    return source;
+  }
+
+  final decoded = image_tools.decodeImage(source);
+  if (decoded == null) {
+    return source;
+  }
+
+  var prepared = _applyPageImageEdits(decoded, page);
+  const maxSide = 1800;
+  if (math.max(prepared.width, prepared.height) > maxSide) {
+    final scale = maxSide / math.max(prepared.width, prepared.height);
+    prepared = image_tools.copyResize(
+      prepared,
+      width: math.max(1, (prepared.width * scale).round()),
+      height: math.max(1, (prepared.height * scale).round()),
+    );
+  }
+
+  return Uint8List.fromList(image_tools.encodeJpg(prepared, quality: 92));
+}
+
 Future<String> _officeMediaMarkup(ScanPage page) async {
   final path = page.bestPath;
   final bytes = path == null ? null : _webBytes[path];
@@ -1389,8 +1508,9 @@ Future<String> _officeMediaMarkup(ScanPage page) async {
     return '';
   }
 
-  final mimeType = _imageMimeType(name);
-  final data = base64Encode(bytes);
+  final edited = _hasPageImageEdits(page);
+  final mimeType = edited ? 'image/jpeg' : _imageMimeType(name);
+  final data = base64Encode(edited ? _previewImageBytes(bytes, page) : bytes);
   return '<img class="page-image" src="data:$mimeType;base64,$data" alt="${_escapeHtml(page.title)}">';
 }
 
@@ -1444,6 +1564,60 @@ String _decodePdfString(String value) {
       .replaceAll(r'\t', ' ')
       .replaceAll(r'\b', '')
       .replaceAll(r'\f', '\n');
+}
+
+String _officeTextMarkup(String text) {
+  final table = _tabularTextMarkup(text);
+  if (table != null) {
+    return table;
+  }
+
+  return '<div class="document-text">${_escapeHtml(text)}</div>';
+}
+
+String? _tabularTextMarkup(String text) {
+  final lines = text
+      .split('\n')
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .toList(growable: false);
+  if (lines.length < 2) {
+    return null;
+  }
+
+  final separator = _tableSeparator(lines);
+  if (separator == null) {
+    return null;
+  }
+
+  final rows = lines.map((line) => line.split(separator)).toList();
+  final columnCount = rows.map((row) => row.length).reduce(math.max);
+  if (columnCount < 2) {
+    return null;
+  }
+
+  final markup = rows.map((row) {
+    final cells = [
+      for (var index = 0; index < columnCount; index++)
+        '<td>${_escapeHtml(index < row.length ? row[index].trim() : '')}</td>',
+    ].join();
+    return '<tr>$cells</tr>';
+  }).join();
+  return '<table class="content-table"><tbody>$markup</tbody></table>';
+}
+
+String? _tableSeparator(List<String> lines) {
+  final tabRows = lines.where((line) => line.contains('\t')).length;
+  if (tabRows >= 2) {
+    return '\t';
+  }
+
+  final commaRows = lines.where((line) => line.split(',').length > 1).length;
+  if (commaRows >= 2) {
+    return ',';
+  }
+
+  return null;
 }
 
 String _escapeHtml(String value) {

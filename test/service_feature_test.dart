@@ -164,6 +164,10 @@ void main() {
           await File(result.outputPath).readAsString(),
           contains('white-space: pre-wrap'),
         );
+        expect(
+          await File(result.outputPath).readAsString(),
+          contains('content-table'),
+        );
       }
     }
   });
@@ -254,6 +258,60 @@ void main() {
     expect(html, contains('class="page-image"'));
     expect(html, contains('data:image/jpeg;base64,'));
     expect(html, contains('white-space: pre-wrap'));
+  });
+
+  test('loads clear rotated image previews', () async {
+    final temp = await Directory.systemTemp.createTemp('sapscanner-preview-');
+    final imageFile = File('${temp.path}${Platform.pathSeparator}wide.jpg');
+    final image = image_tools.Image(width: 80, height: 40)
+      ..clear(image_tools.ColorRgb8(240, 245, 240));
+    await imageFile.writeAsBytes(image_tools.encodeJpg(image, quality: 96));
+
+    final bytes = await loadScanPageImageBytes(
+      ScanPage(
+        id: 'rotated-preview',
+        title: 'Rotated preview',
+        createdAt: DateTime(2026),
+        source: ScanSource.file,
+        kind: DocumentKind.image,
+        localPath: imageFile.path,
+        fileName: 'wide.jpg',
+        rotation: 90,
+      ),
+    );
+    final decoded = image_tools.decodeImage(bytes!);
+
+    expect(decoded?.width, 40);
+    expect(decoded?.height, 80);
+  });
+
+  test('camera captures are cleaned before saving', () async {
+    final temp = await Directory.systemTemp.createTemp('sapscanner-camera-');
+    final imageFile = File('${temp.path}${Platform.pathSeparator}camera.jpg');
+    final image = image_tools.Image(width: 160, height: 120)
+      ..clear(image_tools.ColorRgb8(255, 255, 255));
+    for (var y = 16; y < 104; y++) {
+      for (var x = 16; x < 144; x++) {
+        image.setPixelRgba(x, y, 225, 230, 220, 255);
+      }
+    }
+    await imageFile.writeAsBytes(image_tools.encodeJpg(image, quality: 96));
+
+    final service = NativeScannerService();
+    final result = await service.importCameraCaptures([
+      CapturedScanImage(
+        fileName: 'camera.jpg',
+        path: imageFile.path,
+        mimeType: 'image/jpeg',
+      ),
+    ]);
+    final page = result.pages.single;
+
+    expect(page.processedPath, isNotNull);
+    expect(File(page.processedPath!).existsSync(), isTrue);
+    expect(page.tags, contains('clean'));
+    expect(page.quality, ScanQuality.premium);
+    expect(await loadScanPageImageBytes(page), isNotNull);
   });
 
   test('compresses files, folders, and single images', () async {
